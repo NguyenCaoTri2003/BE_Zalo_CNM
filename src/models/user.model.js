@@ -189,9 +189,9 @@ class User {
             const { email: _, ...updateDataWithoutEmail } = updateData;
 
             // Chuyển đổi giới tính thành boolean nếu có
-            if ('gender' in updateDataWithoutEmail) {
-                updateDataWithoutEmail.gender = updateDataWithoutEmail.gender === 'male';
-            }
+            // if ('gender' in updateDataWithoutEmail) {
+            //     updateDataWithoutEmail.gender = updateDataWithoutEmail.gender === 'Nam';
+            // }
 
             // Chỉ cập nhật các trường được cung cấp
             const updateExpressions = [];

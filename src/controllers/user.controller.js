@@ -456,6 +456,108 @@ class UserController {
             });
         }
     }
+
+    static async updatePassword(req, res) {
+        try {
+            const { currentPassword, newPassword } = req.body;
+            const userEmail = req.user.email;
+    
+            if (!currentPassword || !newPassword) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Vui lòng nhập đầy đủ mật khẩu hiện tại và mật khẩu mới',
+                    error: 'MISSING_PASSWORD_FIELDS'
+                });
+            }
+    
+            if (newPassword.length < 6) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Mật khẩu mới phải có ít nhất 6 ký tự',
+                    error: 'PASSWORD_TOO_SHORT'
+                });
+            }
+    
+            const user = await User.getUserByEmail(userEmail);
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Người dùng không tồn tại',
+                    error: 'USER_NOT_FOUND'
+                });
+            }
+    
+            const isMatch = await bcrypt.compare(currentPassword, user.password);
+            if (!isMatch) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Mật khẩu hiện tại không chính xác',
+                    error: 'INVALID_CURRENT_PASSWORD'
+                });
+            }
+    
+            const salt = await bcrypt.genSalt(10);
+            const hashedNewPassword = await bcrypt.hash(newPassword, salt);
+    
+            await User.updateUserPassword(userEmail, hashedNewPassword);
+    
+            res.status(200).json({
+                success: true,
+                message: 'Đổi mật khẩu thành công'
+            });
+    
+        } catch (error) {
+            console.error('Update password error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Lỗi server, vui lòng thử lại sau',
+                error: 'SERVER_ERROR'
+            });
+        }
+    }
+
+    static async updateProfileWeb(req, res) {
+        try {
+            const { fullName, gender, phoneNumber, address } = req.body;
+            const userEmail = req.user.email;
+            let genderBoolean = undefined;
+            if (gender === 'Nam') genderBoolean = true;
+            else if (gender === 'Nữ') genderBoolean = false;
+
+            // Prepare update data
+            const updateData = {
+                fullName,
+                gender: genderBoolean,
+                phoneNumber,
+                address
+            };
+
+            // Remove undefined fields
+            Object.keys(updateData).forEach(key => {
+                if (updateData[key] === undefined) {
+                    delete updateData[key];
+                }
+            });
+
+            // Update user in DynamoDB
+            const updatedUser = await User.updateUser(userEmail, updateData);
+            delete updatedUser.password;
+
+            res.json({
+                success: true,
+                message: 'Cập nhật thông tin thành công',
+                user: updatedUser
+            });
+        } catch (error) {
+            console.error('Update profile error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Lỗi server, vui lòng thử lại sau',
+                error: 'SERVER_ERROR'
+            });
+        }
+    }
+    
 }
 
 module.exports = UserController; 
