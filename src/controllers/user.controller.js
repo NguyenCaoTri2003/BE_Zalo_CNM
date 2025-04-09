@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/user.model');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
+const { s3 } = require('../config/aws.config');
 
 class UserController {
     static async register(req, res) {
@@ -322,6 +323,112 @@ class UserController {
         } catch (error) {
             console.error('Reset password error:', error);
             res.status(500).json({ 
+                success: false,
+                message: 'Lỗi server, vui lòng thử lại sau',
+                error: 'SERVER_ERROR'
+            });
+        }
+    }
+
+    static async updateProfile(req, res) {
+        try {
+            const { fullName, gender, phoneNumber, address } = req.body;
+            const userEmail = req.user.email;
+
+            // Prepare update data
+            const updateData = {
+                fullName,
+                gender,
+                phoneNumber,
+                address
+            };
+
+            // Remove undefined fields
+            Object.keys(updateData).forEach(key => {
+                if (updateData[key] === undefined) {
+                    delete updateData[key];
+                }
+            });
+
+            // Update user in DynamoDB
+            const updatedUser = await User.updateUser(userEmail, updateData);
+            delete updatedUser.password;
+
+            res.json({
+                success: true,
+                message: 'Cập nhật thông tin thành công',
+                user: updatedUser
+            });
+        } catch (error) {
+            console.error('Update profile error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Lỗi server, vui lòng thử lại sau',
+                error: 'SERVER_ERROR'
+            });
+        }
+    }
+
+    static async uploadAvatar(req, res) {
+        try {
+            if (!req.file) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Không tìm thấy file ảnh',
+                    error: 'NO_FILE'
+                });
+            }
+
+            // Kiểm tra file type
+            const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
+            if (!allowedTypes.includes(req.file.mimetype)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Chỉ chấp nhận file ảnh (JPEG, PNG, GIF)',
+                    error: 'INVALID_FILE_TYPE'
+                });
+            }
+
+            // Kiểm tra kích thước file (tối đa 10MB)
+            const maxSize = 10 * 1024 * 1024; // 10MB
+            if (req.file.size > maxSize) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Kích thước file quá lớn (tối đa 10MB)',
+                    error: 'FILE_TOO_LARGE'
+                });
+            }
+
+            const fileName = `avatars/${req.user.email}-${Date.now()}.${req.file.mimetype.split('/')[1]}`;
+            
+            const params = {
+                Bucket: process.env.AWS_BUCKET_NAME,
+                Key: fileName,
+                Body: req.file.buffer,
+                ContentType: req.file.mimetype
+            };
+
+            const result = await s3.upload(params).promise();
+            const avatarUrl = result.Location;
+
+            // Cập nhật avatar trong database
+            await User.updateUser(req.user.email, { avatar: avatarUrl });
+
+            res.json({
+                success: true,
+                message: 'Cập nhật ảnh đại diện thành công',
+                avatarUrl
+            });
+        } catch (error) {
+            console.error('Upload avatar error:', error);
+            if (error.code === 'LIMIT_FILE_SIZE') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Kích thước file quá lớn (tối đa 10MB)',
+                    error: 'FILE_TOO_LARGE'
+                });
+            }
+            res.status(500).json({
                 success: false,
                 message: 'Lỗi server, vui lòng thử lại sau',
                 error: 'SERVER_ERROR'

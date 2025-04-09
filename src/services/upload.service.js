@@ -5,7 +5,7 @@ class UploadService {
         const params = {
             Bucket: process.env.AWS_BUCKET_NAME,
             Key: fileName,
-            Body: Buffer.from(file, 'base64'),
+            Body: file,
             ContentType: fileType,
             ACL: 'public-read'
         };

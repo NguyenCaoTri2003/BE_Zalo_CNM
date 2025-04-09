@@ -12,9 +12,15 @@ const User = require('./models/user.model');
 const app = express();
 
 // Middleware
-app.use(cors());
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With'],
+  exposedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
 // Initialize DynamoDB
 User.createUsersTable().catch(err => {
@@ -30,8 +36,12 @@ app.use('/api', uploadRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-    console.error(err.stack);
-    res.status(500).json({ message: 'Something broke!' });
+    console.error('Error:', err);
+    res.status(500).json({
+        success: false,
+        message: err.message || 'Server error, please try again later',
+        error: 'SERVER_ERROR'
+    });
 });
 
 // Start server
