@@ -109,20 +109,51 @@ class User {
     }
 
     static async updateUserResetCode(email, codeData) {
-        const params = {
-            TableName: 'Users',
-            Key: {
-                email: email
-            },
-            UpdateExpression: 'set resetCode = :resetCode, resetCodeExpiry = :resetCodeExpiry',
-            ExpressionAttributeValues: {
-                ':resetCode': codeData.resetCode,
-                ':resetCodeExpiry': codeData.resetCodeExpiry
-            },
-            ReturnValues: 'UPDATED_NEW'
-        };
-        await docClient.update(params).promise();
-        return codeData;
+        try {
+            console.log('Starting updateUserResetCode...');
+            console.log('Email:', email);
+            console.log('Code data:', JSON.stringify(codeData, null, 2));
+
+            // Kiểm tra user tồn tại
+            const existingUser = await this.getUserByEmail(email);
+            console.log('Existing user:', JSON.stringify(existingUser, null, 2));
+
+            if (!existingUser) {
+                throw new Error('User not found');
+            }
+
+            const params = {
+                TableName: 'Users',
+                Key: {
+                    email: email
+                },
+                UpdateExpression: 'set resetCode = :resetCode, resetCodeExpiry = :resetCodeExpiry',
+                ExpressionAttributeValues: {
+                    ':resetCode': codeData.resetCode,
+                    ':resetCodeExpiry': codeData.resetCodeExpiry
+                },
+                ReturnValues: 'ALL_NEW'
+            };
+
+            console.log('DynamoDB update params:', JSON.stringify(params, null, 2));
+            
+            const result = await docClient.update(params).promise();
+            console.log('Update complete. Full result:', JSON.stringify(result, null, 2));
+            
+            // Verify the update
+            const updatedUser = await this.getUserByEmail(email);
+            console.log('Verification - Updated user:', JSON.stringify(updatedUser, null, 2));
+            
+            return result.Attributes;
+        } catch (error) {
+            console.error('Error in updateUserResetCode:', error);
+            console.error('Error details:', {
+                code: error.code,
+                message: error.message,
+                stack: error.stack
+            });
+            throw error;
+        }
     }
 
     static async updateUserPasswordWithCode(email, newPassword) {
