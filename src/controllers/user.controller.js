@@ -136,7 +136,7 @@ class UserController {
                     email: user.email,
                     fullName: user.fullName,
                     phoneNumber: user.phoneNumber,
-                    avatar: user.avatar || 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg'
+                    avatar: user.avatar || 'https://i.pinimg.com/564x/c0/d1/21/c0d121e3d2c6e958f1c5e2c0bfb78bb7.jpg'
                 }
             });
         } catch (error) {
@@ -164,7 +164,7 @@ class UserController {
             
             // Ensure avatar exists, or use default
             if (!user.avatar) {
-                user.avatar = 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg';
+                user.avatar = 'https://i.pinimg.com/564x/c0/d1/21/c0d121e3d2c6e958f1c5e2c0bfb78bb7.jpg';
             }
             
             res.json({
@@ -185,6 +185,7 @@ class UserController {
     static async forgotPassword(req, res) {
         try {
             const { email } = req.body;
+            console.log('Received forgot password request for email:', email);
 
             if (!email) {
                 return res.status(400).json({ 
@@ -195,6 +196,8 @@ class UserController {
             }
 
             const user = await User.getUserByEmail(email);
+            console.log('Found user:', user ? 'Yes' : 'No');
+            
             if (!user) {
                 return res.status(400).json({ 
                     success: false,
@@ -206,12 +209,30 @@ class UserController {
             // Tạo mã xác nhận 6 chữ số
             const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
             const codeExpiry = Date.now() + 3600000; // 1 giờ
+            console.log('Generated verification code:', verificationCode);
+            console.log('Code expiry:', new Date(codeExpiry).toISOString());
 
-            // Lưu mã xác nhận vào user data
-            await User.updateUserResetCode(email, {
-                resetCode: verificationCode,
-                resetCodeExpiry: codeExpiry
-            });
+            try {
+                // Lưu mã xác nhận vào user data
+                console.log('Attempting to save reset code to database...');
+                const updateResult = await User.updateUserResetCode(email, {
+                    resetCode: verificationCode,
+                    resetCodeExpiry: codeExpiry
+                });
+                console.log('Reset code saved successfully. Update result:', JSON.stringify(updateResult, null, 2));
+
+                // Verify the update immediately
+                const verifyUser = await User.getUserByEmail(email);
+                console.log('Verification - User after update:', JSON.stringify(verifyUser, null, 2));
+            } catch (dbError) {
+                console.error('Error saving reset code to database:', dbError);
+                console.error('Error details:', {
+                    code: dbError.code,
+                    message: dbError.message,
+                    stack: dbError.stack
+                });
+                throw dbError;
+            }
 
             // Cấu hình nodemailer với service ít nghiêm ngặt hơn
             const transporter = nodemailer.createTransport({
