@@ -188,11 +188,6 @@ class User {
             // Loại bỏ email khỏi dữ liệu cập nhật vì nó là khóa chính
             const { email: _, ...updateDataWithoutEmail } = updateData;
 
-            // Chuyển đổi giới tính thành boolean nếu có
-            // if ('gender' in updateDataWithoutEmail) {
-            //     updateDataWithoutEmail.gender = updateDataWithoutEmail.gender === 'Nam';
-            // }
-
             // Chỉ cập nhật các trường được cung cấp
             const updateExpressions = [];
             const expressionAttributeValues = {};

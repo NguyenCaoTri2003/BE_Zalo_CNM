@@ -520,28 +520,36 @@ class UserController {
         try {
             const { fullName, gender, phoneNumber, address } = req.body;
             const userEmail = req.user.email;
-            let genderBoolean = undefined;
-            if (gender === 'Nam') genderBoolean = true;
-            else if (gender === 'Nữ') genderBoolean = false;
+
+            // Log the received gender value and its type for debugging
+            console.log('Received updateProfileWeb request with data:', req.body);
+            console.log('Type of received gender:', typeof gender);
 
             // Prepare update data
             const updateData = {
                 fullName,
-                gender: genderBoolean,
+                gender, // gender should be boolean here
                 phoneNumber,
                 address
             };
 
             // Remove undefined fields
             Object.keys(updateData).forEach(key => {
-                if (updateData[key] === undefined) {
-                    delete updateData[key];
+                // Keep boolean 'false' but remove undefined/null
+                if (updateData[key] === undefined || updateData[key] === null) {
+                    // Allow null for address to clear it
+                    if (key !== 'address') {
+                        delete updateData[key];
+                    }
                 }
             });
 
+            // Log the data being sent to the model update function
+            console.log('Prepared updateData for User.updateUser:', updateData);
+
             // Update user in DynamoDB
             const updatedUser = await User.updateUser(userEmail, updateData);
-            delete updatedUser.password;
+            delete updatedUser.password; // Ensure password is not sent back
 
             res.json({
                 success: true,
@@ -550,10 +558,24 @@ class UserController {
             });
         } catch (error) {
             console.error('Update profile error:', error);
-            res.status(500).json({
+            // Provide more specific error feedback if possible
+            const errorMessage = error.message || 'Lỗi server không xác định';
+            let statusCode = 500;
+            let errorCode = 'SERVER_ERROR';
+
+            if (errorMessage.includes('User not found')) {
+                statusCode = 404;
+                errorCode = 'USER_NOT_FOUND';
+            } else if (errorMessage.includes('ValidationException')) {
+                statusCode = 400;
+                errorCode = 'VALIDATION_ERROR';
+                console.error('DynamoDB Validation Exception potentially due to type mismatch (e.g., gender column type).');
+            }
+            
+            res.status(statusCode).json({
                 success: false,
-                message: 'Lỗi server, vui lòng thử lại sau',
-                error: 'SERVER_ERROR'
+                message: `Lỗi server: ${errorMessage}`,
+                error: errorCode
             });
         }
     }
