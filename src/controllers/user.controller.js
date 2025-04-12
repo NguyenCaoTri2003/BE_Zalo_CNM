@@ -5,6 +5,9 @@ const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const { s3 } = require('../config/aws.config');
 
+// Biến toàn cục để lưu trữ thông tin xác nhận
+const verificationStore = new Map();
+
 class UserController {
     static async register(req, res) {
         try {
@@ -76,15 +79,17 @@ class UserController {
                 return res.status(400).json({ 
                     success: false,
                     message: 'Vui lòng nhập thông tin đăng nhập và mật khẩu',
-                    error: 'MISSING_CREDENTIALS'
+                    error: 'MISSING_CREDENTIALS',
+                    errorMessage: '<span style="color: red;">Vui lòng nhập thông tin đăng nhập và mật khẩu</span>'
                 });
             }
 
-            if (password.length < 6) {
+            if (password.length < 8) {
                 return res.status(400).json({ 
                     success: false,
-                    message: 'Mật khẩu phải có ít nhất 6 ký tự',
-                    error: 'PASSWORD_TOO_SHORT'
+                    message: 'Mật khẩu phải có ít nhất 8 ký tự',
+                    error: 'PASSWORD_TOO_SHORT',
+                    errorMessage: '<span style="color: red;">Mật khẩu phải có ít nhất 8 ký tự</span>'
                 });
             }
 
@@ -97,7 +102,8 @@ class UserController {
                     return res.status(400).json({ 
                         success: false,
                         message: 'Email không tồn tại trong hệ thống',
-                        error: 'EMAIL_NOT_FOUND'
+                        error: 'EMAIL_NOT_FOUND',
+                        errorMessage: '<span style="color: red;">Email không tồn tại trong hệ thống</span>'
                     });
                 }
             } 
@@ -108,7 +114,8 @@ class UserController {
                     return res.status(400).json({ 
                         success: false,
                         message: 'Số điện thoại không tồn tại trong hệ thống',
-                        error: 'PHONE_NOT_FOUND'
+                        error: 'PHONE_NOT_FOUND',
+                        errorMessage: '<span style="color: red;">Số điện thoại không tồn tại trong hệ thống</span>'
                     });
                 }
             }
@@ -118,7 +125,8 @@ class UserController {
                 return res.status(400).json({ 
                     success: false,
                     message: 'Mật khẩu không chính xác',
-                    error: 'INVALID_PASSWORD'
+                    error: 'INVALID_PASSWORD',
+                    errorMessage: '<span style="color: red;">Mật khẩu không chính xác</span>'
                 });
             }
 
@@ -144,7 +152,8 @@ class UserController {
             res.status(500).json({ 
                 success: false,
                 message: 'Lỗi server, vui lòng thử lại sau',
-                error: 'SERVER_ERROR'
+                error: 'SERVER_ERROR',
+                errorMessage: '<span style="color: red;">Lỗi server, vui lòng thử lại sau</span>'
             });
         }
     }
@@ -294,10 +303,10 @@ class UserController {
                 });
             }
 
-            if (newPassword.length < 6) {
+            if (newPassword.length < 8) {
                 return res.status(400).json({ 
                     success: false,
-                    message: 'Mật khẩu phải có ít nhất 6 ký tự',
+                    message: 'Mật khẩu phải có ít nhất 8 ký tự',
                     error: 'PASSWORD_TOO_SHORT'
                 });
             }
@@ -470,10 +479,10 @@ class UserController {
                 });
             }
     
-            if (newPassword.length < 6) {
+            if (newPassword.length < 8) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Mật khẩu mới phải có ít nhất 6 ký tự',
+                    message: 'Mật khẩu mới phải có ít nhất 8 ký tự',
                     error: 'PASSWORD_TOO_SHORT'
                 });
             }
@@ -579,7 +588,191 @@ class UserController {
             });
         }
     }
-    
+
+    static async sendVerificationCode(req, res) {
+        try {
+            const { email } = req.body;
+            console.log('Received verification request for email:', email);
+
+            if (!email) {
+                return res.status(400).json({ 
+                    success: false,
+                    message: 'Vui lòng nhập email',
+                    error: 'MISSING_EMAIL'
+                });
+            }
+
+            // Kiểm tra email đã tồn tại chưa
+            const existingUser = await User.getUserByEmail(email);
+            if (existingUser) {
+                return res.status(400).json({ 
+                    success: false,
+                    message: 'Email đã được sử dụng',
+                    error: 'EMAIL_EXISTS'
+                });
+            }
+
+            // Tạo mã xác nhận 6 chữ số
+            const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+            const codeExpiry = Date.now() + 3600000; // 1 giờ
+
+            // Lưu mã xác nhận vào bộ nhớ tạm thời
+            verificationStore.set(email, {
+                code: verificationCode,
+                expiry: codeExpiry
+            });
+
+            // Gửi email xác nhận
+            const transporter = nodemailer.createTransport({
+                host: 'smtp.gmail.com',
+                port: 587,
+                secure: false,
+                auth: {
+                    user: process.env.EMAIL_USER,
+                    pass: process.env.EMAIL_PASSWORD
+                }
+            });
+
+            const mailOptions = {
+                from: process.env.EMAIL_USER,
+                to: email,
+                subject: 'Mã xác nhận đăng ký tài khoản Zalo',
+                html: `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                        <h2 style="color: #0068ff;">Xác nhận đăng ký tài khoản Zalo</h2>
+                        <p>Xin chào,</p>
+                        <p>Chúng tôi đã nhận được yêu cầu đăng ký tài khoản Zalo với email này.</p>
+                        <p>Mã xác nhận của bạn là: <strong style="font-size: 24px; color: #0068ff;">${verificationCode}</strong></p>
+                        <p>Mã xác nhận sẽ hết hạn sau 1 giờ.</p>
+                        <p>Nếu bạn không yêu cầu đăng ký, vui lòng bỏ qua email này.</p>
+                        <p>Trân trọng,<br>Đội ngũ Zalo</p>
+                    </div>
+                `
+            };
+
+            await transporter.sendMail(mailOptions);
+
+            res.json({
+                success: true,
+                message: 'Mã xác nhận đã được gửi đến email của bạn'
+            });
+        } catch (error) {
+            console.error('Send verification code error:', error);
+            res.status(500).json({ 
+                success: false,
+                message: 'Không thể gửi mã xác nhận. Vui lòng thử lại sau',
+                error: 'SERVER_ERROR'
+            });
+        }
+    }
+
+    static async verifyAndRegister(req, res) {
+        try {
+            const { email, code, fullName, password, phoneNumber } = req.body;
+            console.log('Received verification and registration request:', { email, code });
+
+            if (!email || !code || !fullName || !password || !phoneNumber) {
+                return res.status(400).json({ 
+                    success: false,
+                    message: 'Vui lòng điền đầy đủ thông tin',
+                    error: 'MISSING_FIELDS',
+                    errorMessage: '<span style="color: red;">Vui lòng điền đầy đủ thông tin</span>'
+                });
+            }
+
+            // Kiểm tra mật khẩu không được chứa khoảng trắng
+            if (password.includes(' ')) {
+                return res.status(400).json({ 
+                    success: false,
+                    message: 'Mật khẩu không được chứa khoảng trắng',
+                    error: 'PASSWORD_CONTAINS_SPACE',
+                    errorMessage: '<span style="color: red;">Mật khẩu không được chứa khoảng trắng</span>'
+                });
+            }
+
+            // Kiểm tra độ dài mật khẩu
+            if (password.length < 8) {
+                return res.status(400).json({ 
+                    success: false,
+                    message: 'Mật khẩu phải có ít nhất 8 ký tự',
+                    error: 'PASSWORD_TOO_SHORT',
+                    errorMessage: '<span style="color: red;">Mật khẩu phải có ít nhất 8 ký tự</span>'
+                });
+            }
+
+            // Kiểm tra mật khẩu phải chứa ít nhất 1 chữ hoa, 1 chữ thường, 1 số và 1 ký tự đặc biệt
+            const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+            if (!passwordRegex.test(password)) {
+                return res.status(400).json({ 
+                    success: false,
+                    message: 'Mật khẩu phải chứa ít nhất 1 chữ hoa, 1 chữ thường, 1 số và 1 ký tự đặc biệt',
+                    error: 'PASSWORD_INVALID_FORMAT',
+                    errorMessage: '<span style="color: red;">Mật khẩu phải chứa ít nhất 1 chữ hoa, 1 chữ thường, 1 số và 1 ký tự đặc biệt</span>'
+                });
+            }
+
+            // Kiểm tra mã xác nhận từ bộ nhớ tạm thời
+            const verificationData = verificationStore.get(email);
+            if (!verificationData) {
+                return res.status(400).json({ 
+                    success: false,
+                    message: 'Mã xác nhận không hợp lệ',
+                    error: 'INVALID_CODE',
+                    errorMessage: '<span style="color: red;">Mã xác nhận không hợp lệ</span>'
+                });
+            }
+
+            if (verificationData.code !== code) {
+                return res.status(400).json({ 
+                    success: false,
+                    message: 'Mã xác nhận không chính xác',
+                    error: 'INVALID_CODE',
+                    errorMessage: '<span style="color: red;">Mã xác nhận không chính xác</span>'
+                });
+            }
+
+            if (Date.now() > verificationData.expiry) {
+                return res.status(400).json({ 
+                    success: false,
+                    message: 'Mã xác nhận đã hết hạn',
+                    error: 'CODE_EXPIRED',
+                    errorMessage: '<span style="color: red;">Mã xác nhận đã hết hạn</span>'
+                });
+            }
+
+            // Mã hóa mật khẩu
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(password, salt);
+
+            // Tạo user mới
+            const userData = {
+                email: email,
+                fullName: fullName,
+                phoneNumber: phoneNumber,
+                password: hashedPassword,
+                createdAt: new Date().toISOString(),
+                avatar: 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg'
+            };
+
+            await User.createUser(userData);
+
+            // Xóa mã xác nhận khỏi bộ nhớ tạm thời
+            verificationStore.delete(email);
+
+            res.json({
+                success: true,
+                message: 'Đăng ký thành công'
+            });
+        } catch (error) {
+            console.error('Verify and register error:', error);
+            res.status(500).json({ 
+                success: false,
+                message: 'Đăng ký thất bại. Vui lòng thử lại sau',
+                error: 'SERVER_ERROR',
+                errorMessage: '<span style="color: red;">Đăng ký thất bại. Vui lòng thử lại sau</span>'
+            });
+        }
+    }
 }
 
 module.exports = UserController; 
