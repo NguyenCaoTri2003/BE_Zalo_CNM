@@ -15,6 +15,7 @@ const http = require('http');
 const { initializeSocket } = require('./services/socket');
 
 const User = require('./models/user.model');
+const Message = require('./models/message.model');
 
 const app = express();
 const server = http.createServer(app);
@@ -38,12 +39,18 @@ User.createUsersTable().catch(err => {
     console.error('Error initializing DynamoDB:', err);
 });
 
+Message.createTable().catch(err => {
+    console.error('Error creating Messages table:', err);
+});
+
 // Routes
 const userRoutes = require('./routes/user.routes');
 const uploadRoutes = require('./routes/upload.routes');
+const messageRoutes = require('./routes/message.routes');
 
 app.use('/api', userRoutes);
 app.use('/api', uploadRoutes);
+app.use('/api/messages', messageRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
