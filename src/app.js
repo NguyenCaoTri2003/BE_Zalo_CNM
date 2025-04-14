@@ -2,14 +2,6 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const userRoutes = require('./routes/user.routes');
-const messageRoutes = require('./routes/message.routes');
-const conversationRoutes = require('./routes/conversation.routes');
-const friendRoutes = require('./routes/friend.routes');
-const postRoutes = require('./routes/post.routes');
-const commentRoutes = require('./routes/comment.routes');
-const likeRoutes = require('./routes/like.routes');
-const notificationRoutes = require('./routes/notification.routes');
-const searchRoutes = require('./routes/search.routes');
 
 const app = express();
 
@@ -26,14 +18,6 @@ app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
 // Routes
 app.use('/api', userRoutes);
-app.use('/api', messageRoutes);
-app.use('/api', conversationRoutes);
-app.use('/api', friendRoutes);
-app.use('/api', postRoutes);
-app.use('/api', commentRoutes);
-app.use('/api', likeRoutes);
-app.use('/api', notificationRoutes);
-app.use('/api', searchRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

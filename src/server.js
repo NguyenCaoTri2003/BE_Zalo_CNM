@@ -1,15 +1,26 @@
+// Load environment variables first
+const dotenv = require('dotenv');
+const path = require('path');
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
+// Log environment variables for debugging
+console.log('AWS_ACCESS_KEY_ID:', process.env.AWS_ACCESS_KEY_ID ? '***' : 'not set');
+console.log('AWS_SECRET_ACCESS_KEY:', process.env.AWS_SECRET_ACCESS_KEY ? '***' : 'not set');
+console.log('AWS_REGION:', process.env.AWS_REGION || 'not set');
+
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const dotenv = require('dotenv');
-const path = require('path');
-
-// Load environment variables first
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
+const http = require('http');
+const { initializeSocket } = require('./services/socket');
 
 const User = require('./models/user.model');
 
 const app = express();
+const server = http.createServer(app);
+
+// Initialize socket.io
+const io = initializeSocket(server);
 
 // Middleware
 app.use(cors({
@@ -46,6 +57,6 @@ app.use((err, req, res, next) => {
 
 // Start server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 }); 

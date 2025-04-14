@@ -4,7 +4,12 @@ class User {
     static async createUser(userData) {
         const params = {
             TableName: 'Users',
-            Item: userData
+            Item: {
+                ...userData,
+                friends: [],
+                friendRequestsReceived: [], // Lời mời kết bạn nhận được
+                friendRequestsSent: [], // Lời mời kết bạn đã gửi
+            }
         };
         await docClient.put(params).promise();
         return userData;
@@ -234,6 +239,122 @@ class User {
             });
             throw error;
         }
+    }
+
+    static async searchUsers(email, phoneNumber) {
+        let user = null;
+        if (email) {
+            user = await this.getUserByEmail(email);
+        } else if (phoneNumber) {
+            user = await this.getUserByPhoneNumber(phoneNumber);
+        }
+        return user;
+    }
+
+    static async sendFriendRequest(senderEmail, receiverEmail) {
+        const timestamp = new Date().toISOString();
+        
+        // Update sender's sent requests
+        await docClient.update({
+            TableName: 'Users',
+            Key: { email: senderEmail },
+            UpdateExpression: 'SET friendRequestsSent = list_append(if_not_exists(friendRequestsSent, :empty_list), :request)',
+            ExpressionAttributeValues: {
+                ':request': [{
+                    email: receiverEmail,
+                    timestamp: timestamp,
+                    status: 'pending'
+                }],
+                ':empty_list': []
+            }
+        }).promise();
+
+        // Update receiver's received requests
+        await docClient.update({
+            TableName: 'Users',
+            Key: { email: receiverEmail },
+            UpdateExpression: 'SET friendRequestsReceived = list_append(if_not_exists(friendRequestsReceived, :empty_list), :request)',
+            ExpressionAttributeValues: {
+                ':request': [{
+                    email: senderEmail,
+                    timestamp: timestamp,
+                    status: 'pending'
+                }],
+                ':empty_list': []
+            }
+        }).promise();
+
+        return { success: true };
+    }
+
+    static async respondToFriendRequest(userEmail, senderEmail, accept) {
+        const timestamp = new Date().toISOString();
+
+        if (accept) {
+            // Add to friends list for both users
+            await docClient.update({
+                TableName: 'Users',
+                Key: { email: userEmail },
+                UpdateExpression: 'SET friends = list_append(if_not_exists(friends, :empty_list), :friend)',
+                ExpressionAttributeValues: {
+                    ':friend': [{ email: senderEmail, timestamp }],
+                    ':empty_list': []
+                }
+            }).promise();
+
+            await docClient.update({
+                TableName: 'Users',
+                Key: { email: senderEmail },
+                UpdateExpression: 'SET friends = list_append(if_not_exists(friends, :empty_list), :friend)',
+                ExpressionAttributeValues: {
+                    ':friend': [{ email: userEmail, timestamp }],
+                    ':empty_list': []
+                }
+            }).promise();
+        }
+
+        // Remove from received requests
+        const user = await this.getUserByEmail(userEmail);
+        const updatedReceivedRequests = (user.friendRequestsReceived || [])
+            .filter(request => request.email !== senderEmail);
+
+        await docClient.update({
+            TableName: 'Users',
+            Key: { email: userEmail },
+            UpdateExpression: 'SET friendRequestsReceived = :requests',
+            ExpressionAttributeValues: {
+                ':requests': updatedReceivedRequests
+            }
+        }).promise();
+
+        // Update sender's sent requests status
+        const sender = await this.getUserByEmail(senderEmail);
+        const updatedSentRequests = (sender.friendRequestsSent || [])
+            .filter(request => request.email !== userEmail);
+
+        await docClient.update({
+            TableName: 'Users',
+            Key: { email: senderEmail },
+            UpdateExpression: 'SET friendRequestsSent = :requests',
+            ExpressionAttributeValues: {
+                ':requests': updatedSentRequests
+            }
+        }).promise();
+
+        return { success: true };
+    }
+
+    static async getFriendRequests(userEmail) {
+        const user = await this.getUserByEmail(userEmail);
+        return {
+            received: user.friendRequestsReceived || [],
+            sent: user.friendRequestsSent || []
+        };
+    }
+
+    static async getFriends(userEmail) {
+        const user = await this.getUserByEmail(userEmail);
+        return user.friends || [];
     }
 }
 

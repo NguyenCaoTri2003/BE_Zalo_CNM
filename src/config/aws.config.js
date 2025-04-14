@@ -20,12 +20,7 @@ const dynamodb = new AWS.DynamoDB();
 const docClient = new AWS.DynamoDB.DocumentClient();
 
 // Create S3 instance
-const s3 = new AWS.S3({
-    apiVersion: '2006-03-01',
-    params: {
-        Bucket: process.env.AWS_BUCKET_NAME
-    }
-});
+const s3 = new AWS.S3();
 
 // Test DynamoDB connection
 dynamodb.listTables({}, (err, data) => {

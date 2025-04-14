@@ -3,7 +3,8 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/user.model');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
-const { s3 } = require('../config/aws.config');
+const { s3, docClient } = require('../config/aws.config');
+const { getIO } = require('../services/socket');
 
 // Biến toàn cục để lưu trữ thông tin xác nhận
 const verificationStore = new Map();
@@ -770,6 +771,299 @@ class UserController {
                 message: 'Đăng ký thất bại. Vui lòng thử lại sau',
                 error: 'SERVER_ERROR',
                 errorMessage: '<span style="color: red;">Đăng ký thất bại. Vui lòng thử lại sau</span>'
+            });
+        }
+    }
+
+    static async searchUser(req, res) {
+        try {
+            const { email, phoneNumber } = req.query;
+            
+            if (!email && !phoneNumber) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Vui lòng cung cấp email hoặc số điện thoại để tìm kiếm'
+                });
+            }
+
+            const user = await User.searchUsers(email, phoneNumber);
+
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Không tìm thấy người dùng'
+                });
+            }
+
+            // Ẩn thông tin nhạy cảm và chỉ trả về thông tin cần thiết
+            const { password, resetToken, resetTokenExpiry, ...userWithoutSensitiveInfo } = user;
+            
+            // Đảm bảo có avatar mặc định nếu không có
+            if (!userWithoutSensitiveInfo.avatar) {
+                userWithoutSensitiveInfo.avatar = 'https://i.pinimg.com/564x/c0/d1/21/c0d121e3d2c6e958f1c5e2c0bfb78bb7.jpg';
+            }
+
+            res.status(200).json({
+                success: true,
+                data: {
+                    fullName: userWithoutSensitiveInfo.fullName,
+                    avatar: userWithoutSensitiveInfo.avatar,
+                    phoneNumber: userWithoutSensitiveInfo.phoneNumber,
+                    email: userWithoutSensitiveInfo.email
+                }
+            });
+        } catch (error) {
+            console.error('Error searching user:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Lỗi server, vui lòng thử lại sau'
+            });
+        }
+    }
+
+    static async sendFriendRequest(req, res) {
+        try {
+            const senderEmail = req.user.email;
+            const { receiverEmail } = req.body;
+
+            if (!receiverEmail) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Vui lòng cung cấp email người nhận'
+                });
+            }
+
+            // Kiểm tra xem người nhận có tồn tại không
+            const receiver = await User.getUserByEmail(receiverEmail);
+            if (!receiver) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Người dùng không tồn tại'
+                });
+            }
+
+            // Kiểm tra xem đã gửi lời mời chưa
+            const sender = await User.getUserByEmail(senderEmail);
+            const hasSentRequest = (sender.friendRequestsSent || [])
+                .some(request => request.email === receiverEmail);
+
+            if (hasSentRequest) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Bạn đã gửi lời mời kết bạn trước đó'
+                });
+            }
+
+            // Gửi lời mời kết bạn
+            await User.sendFriendRequest(senderEmail, receiverEmail);
+
+            // Gửi thông báo qua Socket.IO
+            const io = getIO();
+            io.emit(`friendRequestUpdate:${receiverEmail}`, {
+                type: 'newRequest',
+                sender: {
+                    email: sender.email,
+                    fullName: sender.fullName,
+                    avatar: sender.avatar
+                }
+            });
+
+            res.status(200).json({
+                success: true,
+                message: 'Đã gửi lời mời kết bạn'
+            });
+        } catch (error) {
+            console.error('Send friend request error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Lỗi server, vui lòng thử lại sau'
+            });
+        }
+    }
+
+    static async respondToFriendRequest(req, res) {
+        try {
+            const userEmail = req.user.email;
+            const { senderEmail, accept } = req.body;
+
+            if (!senderEmail || accept === undefined) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Thiếu thông tin cần thiết'
+                });
+            }
+
+            // Check if request exists
+            const requests = await User.getFriendRequests(userEmail);
+            if (!requests.received.some(request => request.email === senderEmail)) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Không tìm thấy lời mời kết bạn'
+                });
+            }
+
+            await User.respondToFriendRequest(userEmail, senderEmail, accept);
+
+            // Gửi thông báo qua Socket.IO
+            const io = getIO();
+            io.emit(`friendRequestResponded:${senderEmail}`, {
+                receiverEmail: userEmail,
+                accept
+            });
+
+            res.status(200).json({
+                success: true,
+                message: accept ? 'Đã chấp nhận lời mời kết bạn' : 'Đã từ chối lời mời kết bạn'
+            });
+        } catch (error) {
+            console.error('Respond to friend request error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Lỗi server, vui lòng thử lại sau'
+            });
+        }
+    }
+
+    static async getFriendRequests(req, res) {
+        try {
+            const userEmail = req.user.email;
+            const requests = await User.getFriendRequests(userEmail);
+
+            // Get full user info for each request
+            const receivedWithInfo = await Promise.all(
+                requests.received.map(async (request) => {
+                    const user = await User.getUserByEmail(request.email);
+                    return {
+                        ...request,
+                        fullName: user.fullName,
+                        avatar: user.avatar
+                    };
+                })
+            );
+
+            const sentWithInfo = await Promise.all(
+                requests.sent.map(async (request) => {
+                    const user = await User.getUserByEmail(request.email);
+                    return {
+                        ...request,
+                        fullName: user.fullName,
+                        avatar: user.avatar
+                    };
+                })
+            );
+
+            res.status(200).json({
+                success: true,
+                data: {
+                    received: receivedWithInfo,
+                    sent: sentWithInfo
+                }
+            });
+        } catch (error) {
+            console.error('Get friend requests error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Lỗi server, vui lòng thử lại sau'
+            });
+        }
+    }
+
+    static async getFriends(req, res) {
+        try {
+            const userEmail = req.user.email;
+            const friends = await User.getFriends(userEmail);
+
+            // Get full user info for each friend
+            const friendsWithInfo = await Promise.all(
+                friends.map(async (friend) => {
+                    const user = await User.getUserByEmail(friend.email);
+                    return {
+                        ...friend,
+                        fullName: user.fullName,
+                        avatar: user.avatar
+                    };
+                })
+            );
+
+            res.status(200).json({
+                success: true,
+                data: friendsWithInfo
+            });
+        } catch (error) {
+            console.error('Get friends error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Lỗi server, vui lòng thử lại sau'
+            });
+        }
+    }
+
+    static async withdrawFriendRequest(req, res) {
+        try {
+            const senderEmail = req.user.email;
+            const { receiverEmail } = req.body;
+
+            if (!receiverEmail) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Vui lòng cung cấp email người nhận'
+                });
+            }
+
+            // Check if request exists
+            const sender = await User.getUserByEmail(senderEmail);
+            const sentRequest = (sender.friendRequestsSent || [])
+                .find(request => request.email === receiverEmail);
+
+            if (!sentRequest) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Không tìm thấy lời mời kết bạn'
+                });
+            }
+
+            // Remove from sender's sent requests
+            const updatedSentRequests = (sender.friendRequestsSent || [])
+                .filter(request => request.email !== receiverEmail);
+
+            await docClient.update({
+                TableName: 'Users',
+                Key: { email: senderEmail },
+                UpdateExpression: 'SET friendRequestsSent = :requests',
+                ExpressionAttributeValues: {
+                    ':requests': updatedSentRequests
+                }
+            }).promise();
+
+            // Remove from receiver's received requests
+            const receiver = await User.getUserByEmail(receiverEmail);
+            const updatedReceivedRequests = (receiver.friendRequestsReceived || [])
+                .filter(request => request.email !== senderEmail);
+
+            await docClient.update({
+                TableName: 'Users',
+                Key: { email: receiverEmail },
+                UpdateExpression: 'SET friendRequestsReceived = :requests',
+                ExpressionAttributeValues: {
+                    ':requests': updatedReceivedRequests
+                }
+            }).promise();
+
+            // Gửi thông báo qua Socket.IO
+            const io = getIO();
+            io.emit(`friendRequestWithdrawn:${receiverEmail}`, {
+                senderEmail
+            });
+
+            res.status(200).json({
+                success: true,
+                message: 'Đã thu hồi lời mời kết bạn'
+            });
+        } catch (error) {
+            console.error('Withdraw friend request error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Lỗi server, vui lòng thử lại sau'
             });
         }
     }

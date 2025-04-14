@@ -23,4 +23,14 @@ router.put('/update-password', authenticateToken, UserController.updatePassword)
 // Avatar management
 router.post('/upload-avatar', authenticateToken, upload.single('avatar'), UserController.uploadAvatar);
 
+// Search user
+router.get('/search', UserController.searchUser);
+
+// Friend management
+router.post('/friend-request/send', authenticateToken, UserController.sendFriendRequest);
+router.post('/friend-request/respond', authenticateToken, UserController.respondToFriendRequest);
+router.post('/friend-request/withdraw', authenticateToken, UserController.withdrawFriendRequest);
+router.get('/friend-requests', authenticateToken, UserController.getFriendRequests);
+router.get('/friends', authenticateToken, UserController.getFriends);
+
 module.exports = router; 
