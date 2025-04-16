@@ -89,44 +89,94 @@ exports.markAsRead = async (req, res) => {
     }
 };
 
-exports.recallMessage = async (req, res) => {
+exports.addReaction = async (req, res) => {
     try {
-        const { messageId } = req.params;
-        const senderEmail = req.user.email; // Lấy email người gửi từ token
+        const { messageId, reaction } = req.body;
+        const senderEmail = req.user.email;
 
-        // Tìm tin nhắn và kiểm tra quyền thu hồi
-        const message = await Message.findOne({ messageId, senderEmail });
-        
+        if (!messageId || !reaction) {
+            return res.status(400).json({
+                success: false,
+                error: 'Missing required fields: messageId or reaction'
+            });
+        }
+
+        // Tìm tin nhắn bằng findById thay vì findOne
+        const message = await Message.findById(messageId);
         if (!message) {
             return res.status(404).json({
                 success: false,
-                error: 'Message not found or you do not have permission to recall this message'
+                error: 'Message not found'
             });
         }
 
-        // Kiểm tra thời gian thu hồi (ví dụ: chỉ cho phép thu hồi trong 2 phút)
-        const messageAge = Date.now() - message.createdAt.getTime();
-        const twoMinutes = 2 * 60 * 1000;
-        
-        if (messageAge > twoMinutes) {
-            return res.status(400).json({
-                success: false,
-                error: 'Cannot recall message after 2 minutes'
-            });
-        }
+        // Chuẩn bị reaction mới
+        const newReaction = {
+            senderEmail,
+            reaction,
+            timestamp: new Date().toISOString()
+        };
 
-        // Cập nhật trạng thái tin nhắn thành "recalled"
-        await Message.findOneAndUpdate(
-            { messageId },
-            { 
-                status: 'recalled',
-                content: 'Tin nhắn đã được thu hồi'
-            }
+        // Lấy reactions hiện tại hoặc khởi tạo mảng rỗng
+        let currentReactions = message.reactions || [];
+
+        // Tìm index của reaction hiện tại của user (nếu có)
+        const existingReactionIndex = currentReactions.findIndex(
+            r => r.senderEmail === senderEmail
         );
+
+        if (existingReactionIndex >= 0) {
+            // Cập nhật reaction cũ
+            currentReactions[existingReactionIndex] = newReaction;
+        } else {
+            // Thêm reaction mới
+            currentReactions.push(newReaction);
+        }
+
+        // Cập nhật reactions trong database
+        const updatedMessage = await Message.updateReactions(messageId, currentReactions);
 
         res.status(200).json({
             success: true,
-            message: 'Message recalled successfully'
+            data: updatedMessage
+        });
+    } catch (error) {
+        console.error('Error adding reaction:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Internal server error'
+        });
+    }
+};
+
+exports.recallMessage = async (req, res) => {
+    try {
+        const { messageId } = req.params;
+        const userEmail = req.user.email;
+
+        // Kiểm tra tin nhắn tồn tại
+        const message = await Message.findById(messageId);
+        if (!message) {
+            return res.status(404).json({
+                success: false,
+                error: 'Message not found'
+            });
+        }
+
+        // Kiểm tra người dùng có phải là người gửi tin nhắn
+        if (message.senderEmail !== userEmail) {
+            return res.status(403).json({
+                success: false,
+                error: 'You can only recall your own messages'
+            });
+        }
+
+        // Thu hồi tin nhắn
+        const updatedMessage = await Message.recallMessage(messageId);
+
+        res.status(200).json({
+            success: true,
+            data: updatedMessage
         });
     } catch (error) {
         console.error('Error recalling message:', error);
@@ -140,26 +190,27 @@ exports.recallMessage = async (req, res) => {
 exports.deleteMessage = async (req, res) => {
     try {
         const { messageId } = req.params;
-        const userEmail = req.user.email; // Lấy email người dùng từ token
+        const userEmail = req.user.email;
 
-        // Tìm tin nhắn và kiểm tra quyền xóa
-        const message = await Message.findOne({
-            messageId,
-            $or: [
-                { senderEmail: userEmail },
-                { receiverEmail: userEmail }
-            ]
-        });
-
+        // Kiểm tra tin nhắn tồn tại
+        const message = await Message.findById(messageId);
         if (!message) {
             return res.status(404).json({
                 success: false,
-                error: 'Message not found or you do not have permission to delete this message'
+                error: 'Message not found'
+            });
+        }
+
+        // Kiểm tra người dùng có phải là người gửi hoặc người nhận tin nhắn
+        if (message.senderEmail !== userEmail && message.receiverEmail !== userEmail) {
+            return res.status(403).json({
+                success: false,
+                error: 'You can only delete messages you sent or received'
             });
         }
 
         // Xóa tin nhắn
-        await Message.deleteOne({ messageId });
+        await Message.deleteMessage(messageId);
 
         res.status(200).json({
             success: true,

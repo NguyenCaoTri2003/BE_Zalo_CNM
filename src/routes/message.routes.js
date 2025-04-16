@@ -12,10 +12,13 @@ router.get('/conversation/:receiverEmail', authenticateToken, messageController.
 // Mark a message as read
 router.put('/read/:messageId', authenticateToken, messageController.markAsRead);
 
-// Recall a message (only within 2 minutes)
+// Add reaction to a message
+router.post('/reaction', authenticateToken, messageController.addReaction);
+
+// Thu hồi tin nhắn
 router.put('/recall/:messageId', authenticateToken, messageController.recallMessage);
 
-// Delete a message
+// Xóa tin nhắn
 router.delete('/delete/:messageId', authenticateToken, messageController.deleteMessage);
 
 module.exports = router; 

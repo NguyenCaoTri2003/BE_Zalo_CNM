@@ -42,7 +42,8 @@ class Message {
                 receiverEmail: message.receiverEmail,
                 content: message.content,
                 createdAt: message.createdAt.toISOString(),
-                status: message.status
+                status: message.status,
+                reactions: message.reactions || [] // Initialize empty reactions array if not provided
             }
         };
 
@@ -100,6 +101,84 @@ class Message {
         try {
             await dynamoDB.update(params).promise();
         } catch (error) {
+            throw error;
+        }
+    }
+
+    static async updateReactions(messageId, reactions) {
+        const params = {
+            TableName: TABLE_NAME,
+            Key: {
+                messageId: messageId
+            },
+            UpdateExpression: 'SET reactions = :reactions',
+            ExpressionAttributeValues: {
+                ':reactions': reactions
+            },
+            ReturnValues: 'ALL_NEW'
+        };
+
+        try {
+            const result = await dynamoDB.update(params).promise();
+            return result.Attributes;
+        } catch (error) {
+            console.error('Error updating reactions:', error);
+            throw error;
+        }
+    }
+
+    static async findById(messageId) {
+        const params = {
+            TableName: TABLE_NAME,
+            Key: {
+                messageId: messageId
+            }
+        };
+
+        try {
+            const result = await dynamoDB.get(params).promise();
+            return result.Item;
+        } catch (error) {
+            console.error('Error finding message by ID:', error);
+            throw error;
+        }
+    }
+
+    static async recallMessage(messageId) {
+        const params = {
+            TableName: TABLE_NAME,
+            Key: {
+                messageId: messageId
+            },
+            UpdateExpression: 'SET isRecalled = :isRecalled',
+            ExpressionAttributeValues: {
+                ':isRecalled': true
+            },
+            ReturnValues: 'ALL_NEW'
+        };
+
+        try {
+            const result = await dynamoDB.update(params).promise();
+            return result.Attributes;
+        } catch (error) {
+            console.error('Error recalling message:', error);
+            throw error;
+        }
+    }
+
+    static async deleteMessage(messageId) {
+        const params = {
+            TableName: TABLE_NAME,
+            Key: {
+                messageId: messageId
+            }
+        };
+
+        try {
+            await dynamoDB.delete(params).promise();
+            return true;
+        } catch (error) {
+            console.error('Error deleting message:', error);
             throw error;
         }
     }
