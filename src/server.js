@@ -75,10 +75,12 @@ Message.createTable().catch(err => {
 const userRoutes = require('./routes/user.routes');
 const uploadRoutes = require('./routes/upload.routes');
 const messageRoutes = require('./routes/message.routes');
+const fileRoutes = require('./routes/file.routes');
 
 app.use('/api', userRoutes);
 app.use('/api', uploadRoutes);
 app.use('/api/messages', messageRoutes);
+app.use('/api/files', fileRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

@@ -114,6 +114,50 @@ const initializeSocket = (server) => {
             }
         });
 
+        // Xử lý sự kiện bắt đầu gõ tin nhắn
+        socket.on('typingStart', (data) => {
+            try {
+                const { receiverEmail } = data;
+                const senderEmail = socket.user.email;
+
+                console.log('Typing started from:', senderEmail, 'to:', receiverEmail);
+
+                // Gửi thông báo cho tất cả các kết nối của người nhận
+                const receiverSockets = userSockets.get(receiverEmail);
+                if (receiverSockets) {
+                    receiverSockets.forEach(socketId => {
+                        io.to(socketId).emit('typingStart', {
+                            senderEmail
+                        });
+                    });
+                }
+            } catch (error) {
+                console.error('Typing start error:', error);
+            }
+        });
+
+        // Xử lý sự kiện dừng gõ tin nhắn
+        socket.on('typingStop', (data) => {
+            try {
+                const { receiverEmail } = data;
+                const senderEmail = socket.user.email;
+
+                console.log('Typing stopped from:', senderEmail, 'to:', receiverEmail);
+
+                // Gửi thông báo cho tất cả các kết nối của người nhận
+                const receiverSockets = userSockets.get(receiverEmail);
+                if (receiverSockets) {
+                    receiverSockets.forEach(socketId => {
+                        io.to(socketId).emit('typingStop', {
+                            senderEmail
+                        });
+                    });
+                }
+            } catch (error) {
+                console.error('Typing stop error:', error);
+            }
+        });
+
         // Xử lý sự kiện gửi lời mời kết bạn
         socket.on('friendRequestSent', async (data) => {
             try {

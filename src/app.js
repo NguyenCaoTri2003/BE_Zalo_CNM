@@ -3,6 +3,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const userRoutes = require('./routes/user.routes');
 const messageRoutes = require('./routes/message.routes');
+const fileRoutes = require('./routes/file.routes');
 
 const app = express();
 
@@ -10,7 +11,8 @@ const app = express();
 app.use(cors({
   origin: '*', // Cho phép tất cả các domain
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
   credentials: true
 }));
 
@@ -21,14 +23,15 @@ app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 // Routes
 app.use('/api', userRoutes);
 app.use('/api/messages', messageRoutes);
+app.use('/api/files', fileRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error('Error:', err);
   res.status(500).json({
     success: false,
     message: 'Lỗi server, vui lòng thử lại sau',
-    error: 'SERVER_ERROR'
+    error: err.message || 'SERVER_ERROR'
   });
 });
 
