@@ -4,6 +4,11 @@ const UserController = require('../controllers/user.controller');
 const authenticateToken = require('../middleware/auth.middleware');
 const upload = require('../config/multer.config');
 
+// Test route
+router.get('/test', (req, res) => {
+    res.json({ message: 'API is working!' });
+});
+
 // Registration routes
 router.post('/register/send-verification', UserController.sendVerificationCode);
 router.post('/register/verify', UserController.verifyAndRegister);
@@ -32,5 +37,6 @@ router.post('/friend-request/respond', authenticateToken, UserController.respond
 router.post('/friend-request/withdraw', authenticateToken, UserController.withdrawFriendRequest);
 router.get('/friend-requests', authenticateToken, UserController.getFriendRequests);
 router.get('/friends', authenticateToken, UserController.getFriends);
+router.post('/friends/unfriend', authenticateToken, UserController.unfriend);
 
 module.exports = router; 

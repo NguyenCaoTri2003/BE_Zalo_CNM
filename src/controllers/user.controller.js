@@ -1067,6 +1067,52 @@ class UserController {
             });
         }
     }
+
+    static async unfriend(req, res) {
+        try {
+            const userEmail = req.user.email;
+            const { friendEmail } = req.body;
+
+            if (!friendEmail) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Vui lòng cung cấp email người bạn muốn xóa'
+                });
+            }
+
+            // Kiểm tra xem có phải là bạn bè không
+            const user = await User.getUserByEmail(userEmail);
+            const isFriend = (user.friends || []).some(friend => friend.email === friendEmail);
+
+            if (!isFriend) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Người dùng này không phải là bạn bè của bạn'
+                });
+            }
+
+            // Xóa bạn bè
+            await User.removeFriend(userEmail, friendEmail);
+
+            // Gửi thông báo qua Socket.IO
+            const io = getIO();
+            io.emit(`friendshipUpdate:${friendEmail}`, {
+                type: 'unfriend',
+                userEmail: userEmail
+            });
+
+            res.status(200).json({
+                success: true,
+                message: 'Đã xóa bạn bè thành công'
+            });
+        } catch (error) {
+            console.error('Unfriend error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Lỗi server, vui lòng thử lại sau'
+            });
+        }
+    }
 }
 
 module.exports = UserController; 

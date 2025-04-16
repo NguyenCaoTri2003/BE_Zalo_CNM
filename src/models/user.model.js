@@ -356,6 +356,39 @@ class User {
         const user = await this.getUserByEmail(userEmail);
         return user.friends || [];
     }
+
+    static async removeFriend(userEmail, friendEmail) {
+        // Lấy danh sách bạn bè hiện tại của người dùng
+        const user = await this.getUserByEmail(userEmail);
+        const updatedFriends = (user.friends || []).filter(friend => friend.email !== friendEmail);
+
+        // Cập nhật danh sách bạn bè của người dùng
+        const params = {
+            TableName: 'Users',
+            Key: { email: userEmail },
+            UpdateExpression: 'SET friends = :friends',
+            ExpressionAttributeValues: {
+                ':friends': updatedFriends
+            }
+        };
+        await docClient.update(params).promise();
+
+        // Lấy danh sách bạn bè hiện tại của người bị xóa
+        const friend = await this.getUserByEmail(friendEmail);
+        const updatedFriendsList = (friend.friends || []).filter(f => f.email !== userEmail);
+
+        // Cập nhật danh sách bạn bè của người bị xóa
+        const params2 = {
+            TableName: 'Users',
+            Key: { email: friendEmail },
+            UpdateExpression: 'SET friends = :friends',
+            ExpressionAttributeValues: {
+                ':friends': updatedFriendsList
+            }
+        };
+
+        await docClient.update(params2).promise();
+    }
 }
 
 module.exports = User; 
