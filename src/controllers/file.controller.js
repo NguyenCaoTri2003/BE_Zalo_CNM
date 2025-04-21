@@ -1,25 +1,10 @@
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { s3 } = require('../config/aws.config');
 
-// Cấu hình multer để lưu file tạm thời
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = path.join(__dirname, '../../uploads');
-    // Tạo thư mục nếu chưa tồn tại
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    // Tạo tên file ngẫu nhiên để tránh trùng lặp
-    const uniqueFilename = `${uuidv4()}${path.extname(file.originalname)}`;
-    cb(null, uniqueFilename);
-  }
-});
+// Cấu hình multer để lưu file trong memory thay vì disk
+const storage = multer.memoryStorage();
 
 // Cấu hình multer
 const upload = multer({
@@ -48,30 +33,25 @@ class FileController {
         });
       }
 
-      // Upload file lên S3
-      const fileStream = fs.createReadStream(req.file.path);
+      // Tạo tên file ngẫu nhiên để tránh trùng lặp
+      const uniqueFilename = `${uuidv4()}${path.extname(req.file.originalname)}`;
+
+      // Upload file trực tiếp lên S3 trong thư mục uploadFile
       const s3Params = {
         Bucket: process.env.AWS_BUCKET_NAME,
-        Key: req.file.filename,
-        Body: fileStream,
+        Key: `uploadFile/${uniqueFilename}`,
+        Body: req.file.buffer,
         ContentType: req.file.mimetype,
         ACL: 'public-read'
       };
 
       const s3Response = await s3.upload(s3Params).promise();
-      
-      // Xóa file tạm sau khi upload lên S3
-      try {
-        fs.unlinkSync(req.file.path);
-      } catch (error) {
-        console.error('Error deleting temp file:', error);
-      }
 
       // Trả về thông tin file
       return res.status(200).json({
         success: true,
         data: {
-          filename: req.file.filename,
+          filename: uniqueFilename,
           originalname: req.file.originalname,
           mimetype: req.file.mimetype,
           size: req.file.size,
@@ -81,15 +61,6 @@ class FileController {
     } catch (error) {
       console.error('Lỗi khi upload file:', error);
       
-      // Xóa file tạm nếu có lỗi
-      if (req.file && req.file.path) {
-        try {
-          fs.unlinkSync(req.file.path);
-        } catch (unlinkError) {
-          console.error('Error deleting temp file:', unlinkError);
-        }
-      }
-
       return res.status(500).json({
         success: false,
         message: 'Lỗi khi upload file',
@@ -103,10 +74,10 @@ class FileController {
     try {
       const { filename } = req.params;
       
-      // Lấy file từ S3
+      // Lấy file từ S3 từ thư mục uploadFile
       const s3Params = {
         Bucket: process.env.AWS_BUCKET_NAME,
-        Key: filename
+        Key: `uploadFile/${filename}`
       };
 
       const s3Response = await s3.getObject(s3Params).promise();

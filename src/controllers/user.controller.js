@@ -43,10 +43,10 @@ class UserController {
                 avatar: 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg'
             };
 
-            await User.createUser(userData);
+            const createdUser = await User.createUser(userData);
 
             const token = jwt.sign(
-                { email: email },
+                { userId: createdUser.userId, email: email },
                 process.env.JWT_SECRET,
                 { expiresIn: '24h' }
             );
@@ -56,6 +56,7 @@ class UserController {
                 message: 'Đăng ký thành công',
                 token,
                 user: {
+                    userId: createdUser.userId,
                     email: email,
                     fullName: fullName,
                     phoneNumber: phoneNumber,
@@ -132,7 +133,7 @@ class UserController {
             }
 
             const token = jwt.sign(
-                { email: user.email },
+                { userId: user.userId, email: user.email },
                 process.env.JWT_SECRET,
                 { expiresIn: '24h' }
             );
@@ -142,10 +143,11 @@ class UserController {
                 message: 'Đăng nhập thành công',
                 token,
                 user: {
+                    userId: user.userId,
                     email: user.email,
                     fullName: user.fullName,
                     phoneNumber: user.phoneNumber,
-                    avatar: user.avatar || 'https://i.pinimg.com/564x/c0/d1/21/c0d121e3d2c6e958f1c5e2c0bfb78bb7.jpg'
+                    avatar: user.avatar || 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg'
                 }
             });
         } catch (error) {
@@ -161,7 +163,7 @@ class UserController {
 
     static async getProfile(req, res) {
         try {
-            const user = await User.getUserByEmail(req.user.email);
+            const user = await User.getUserById(req.user.userId);
             if (!user) {
                 return res.status(404).json({ 
                     success: false,
@@ -174,7 +176,7 @@ class UserController {
             
             // Ensure avatar exists, or use default
             if (!user.avatar) {
-                user.avatar = 'https://i.pinimg.com/564x/c0/d1/21/c0d121e3d2c6e958f1c5e2c0bfb78bb7.jpg';
+                user.avatar = 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg';
             }
             
             res.json({
@@ -364,7 +366,7 @@ class UserController {
     static async updateProfile(req, res) {
         try {
             const { fullName, gender, phoneNumber, address } = req.body;
-            const userEmail = req.user.email;
+            const userId = req.user.userId;
 
             // Prepare update data
             const updateData = {
@@ -382,7 +384,7 @@ class UserController {
             });
 
             // Update user in DynamoDB
-            const updatedUser = await User.updateUser(userEmail, updateData);
+            const updatedUser = await User.updateUser(userId, updateData);
             delete updatedUser.password;
 
             res.json({
@@ -430,7 +432,7 @@ class UserController {
                 });
             }
 
-            const fileName = `avatars/${req.user.email}-${Date.now()}.${req.file.mimetype.split('/')[1]}`;
+            const fileName = `avatars/${req.user.userId}-${Date.now()}.${req.file.mimetype.split('/')[1]}`;
             
             const params = {
                 Bucket: process.env.AWS_BUCKET_NAME,
@@ -443,7 +445,7 @@ class UserController {
             const avatarUrl = result.Location;
 
             // Cập nhật avatar trong database
-            await User.updateUser(req.user.email, { avatar: avatarUrl });
+            await User.updateUser(req.user.userId, { avatar: avatarUrl });
 
             res.json({
                 success: true,
@@ -470,7 +472,7 @@ class UserController {
     static async updatePassword(req, res) {
         try {
             const { currentPassword, newPassword } = req.body;
-            const userEmail = req.user.email;
+            const userId = req.user.userId;
     
             if (!currentPassword || !newPassword) {
                 return res.status(400).json({
@@ -488,7 +490,7 @@ class UserController {
                 });
             }
     
-            const user = await User.getUserByEmail(userEmail);
+            const user = await User.getUserById(userId);
             if (!user) {
                 return res.status(404).json({
                     success: false,
@@ -509,7 +511,7 @@ class UserController {
             const salt = await bcrypt.genSalt(10);
             const hashedNewPassword = await bcrypt.hash(newPassword, salt);
     
-            await User.updateUserPassword(userEmail, hashedNewPassword);
+            await User.updateUser(userId, { password: hashedNewPassword });
     
             res.status(200).json({
                 success: true,
@@ -529,7 +531,7 @@ class UserController {
     static async updateProfileWeb(req, res) {
         try {
             const { fullName, gender, phoneNumber, address } = req.body;
-            const userEmail = req.user.email;
+            const userId = req.user.userId;
 
             // Log the received gender value and its type for debugging
             console.log('Received updateProfileWeb request with data:', req.body);
@@ -558,7 +560,7 @@ class UserController {
             console.log('Prepared updateData for User.updateUser:', updateData);
 
             // Update user in DynamoDB
-            const updatedUser = await User.updateUser(userEmail, updateData);
+            const updatedUser = await User.updateUser(userId, updateData);
             delete updatedUser.password; // Ensure password is not sent back
 
             res.json({
@@ -800,7 +802,7 @@ class UserController {
             
             // Đảm bảo có avatar mặc định nếu không có
             if (!userWithoutSensitiveInfo.avatar) {
-                userWithoutSensitiveInfo.avatar = 'https://i.pinimg.com/564x/c0/d1/21/c0d121e3d2c6e958f1c5e2c0bfb78bb7.jpg';
+                userWithoutSensitiveInfo.avatar = 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg';
             }
 
             res.status(200).json({
@@ -1010,8 +1012,18 @@ class UserController {
                 });
             }
 
-            // Check if request exists
+            // Get both users first
             const sender = await User.getUserByEmail(senderEmail);
+            const receiver = await User.getUserByEmail(receiverEmail);
+            
+            if (!sender || !receiver) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Người dùng không tồn tại'
+                });
+            }
+
+            // Check if request exists
             const sentRequest = (sender.friendRequestsSent || [])
                 .find(request => request.email === receiverEmail);
 
@@ -1028,7 +1040,7 @@ class UserController {
 
             await docClient.update({
                 TableName: 'Users',
-                Key: { email: senderEmail },
+                Key: { userId: sender.userId },
                 UpdateExpression: 'SET friendRequestsSent = :requests',
                 ExpressionAttributeValues: {
                     ':requests': updatedSentRequests
@@ -1036,13 +1048,12 @@ class UserController {
             }).promise();
 
             // Remove from receiver's received requests
-            const receiver = await User.getUserByEmail(receiverEmail);
             const updatedReceivedRequests = (receiver.friendRequestsReceived || [])
                 .filter(request => request.email !== senderEmail);
 
             await docClient.update({
                 TableName: 'Users',
-                Key: { email: receiverEmail },
+                Key: { userId: receiver.userId },
                 UpdateExpression: 'SET friendRequestsReceived = :requests',
                 ExpressionAttributeValues: {
                     ':requests': updatedReceivedRequests

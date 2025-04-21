@@ -4,7 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 exports.sendMessage = async (req, res) => {
     try {
         const { content } = req.body;
-        const senderEmail = req.user.email; // Lấy email người gửi từ token
+        const senderEmail = req.user.email;
         const receiverEmail = req.body.receiverEmail;
         
         if (!senderEmail || !receiverEmail || !content) {
@@ -39,7 +39,7 @@ exports.sendMessage = async (req, res) => {
 
 exports.getMessages = async (req, res) => {
     try {
-        const senderEmail = req.user.email; // Lấy email người gửi từ token
+        const senderEmail = req.user.email;
         const { receiverEmail } = req.params;
         
         if (!senderEmail || !receiverEmail) {
@@ -70,10 +70,25 @@ exports.getMessages = async (req, res) => {
 exports.markAsRead = async (req, res) => {
     try {
         const { messageId } = req.params;
-        const receiverEmail = req.user.email; // Lấy email người nhận từ token
+        const receiverEmail = req.user.email;
+
+        const message = await Message.findById(messageId);
+        if (!message) {
+            return res.status(404).json({
+                success: false,
+                error: 'Message not found'
+            });
+        }
+
+        if (message.receiverEmail !== receiverEmail) {
+            return res.status(403).json({
+                success: false,
+                error: 'You can only mark messages sent to you as read'
+            });
+        }
 
         await Message.findOneAndUpdate(
-            { messageId, receiverEmail },
+            { messageId, senderEmail: message.senderEmail, receiverEmail },
             { status: 'read' }
         );
 
@@ -101,7 +116,6 @@ exports.addReaction = async (req, res) => {
             });
         }
 
-        // Tìm tin nhắn bằng findById thay vì findOne
         const message = await Message.findById(messageId);
         if (!message) {
             return res.status(404).json({
@@ -110,30 +124,31 @@ exports.addReaction = async (req, res) => {
             });
         }
 
-        // Chuẩn bị reaction mới
-        const newReaction = {
-            senderEmail,
-            reaction,
-            timestamp: new Date().toISOString()
-        };
-
-        // Lấy reactions hiện tại hoặc khởi tạo mảng rỗng
+        // Get current reactions or initialize empty array
         let currentReactions = message.reactions || [];
 
-        // Tìm index của reaction hiện tại của user (nếu có)
+        // Find existing reaction from this user
         const existingReactionIndex = currentReactions.findIndex(
             r => r.senderEmail === senderEmail
         );
 
         if (existingReactionIndex >= 0) {
-            // Cập nhật reaction cũ
-            currentReactions[existingReactionIndex] = newReaction;
+            // Update existing reaction
+            currentReactions[existingReactionIndex] = {
+                senderEmail,
+                reaction,
+                timestamp: new Date().toISOString()
+            };
         } else {
-            // Thêm reaction mới
-            currentReactions.push(newReaction);
+            // Add new reaction
+            currentReactions.push({
+                senderEmail,
+                reaction,
+                timestamp: new Date().toISOString()
+            });
         }
 
-        // Cập nhật reactions trong database
+        // Update reactions in database
         const updatedMessage = await Message.updateReactions(messageId, currentReactions);
 
         res.status(200).json({
@@ -154,7 +169,6 @@ exports.recallMessage = async (req, res) => {
         const { messageId } = req.params;
         const userEmail = req.user.email;
 
-        // Kiểm tra tin nhắn tồn tại
         const message = await Message.findById(messageId);
         if (!message) {
             return res.status(404).json({
@@ -163,7 +177,6 @@ exports.recallMessage = async (req, res) => {
             });
         }
 
-        // Kiểm tra người dùng có phải là người gửi tin nhắn
         if (message.senderEmail !== userEmail) {
             return res.status(403).json({
                 success: false,
@@ -171,7 +184,6 @@ exports.recallMessage = async (req, res) => {
             });
         }
 
-        // Thu hồi tin nhắn
         const updatedMessage = await Message.recallMessage(messageId);
 
         res.status(200).json({
@@ -192,7 +204,6 @@ exports.deleteMessage = async (req, res) => {
         const { messageId } = req.params;
         const userEmail = req.user.email;
 
-        // Kiểm tra tin nhắn tồn tại
         const message = await Message.findById(messageId);
         if (!message) {
             return res.status(404).json({
@@ -201,7 +212,6 @@ exports.deleteMessage = async (req, res) => {
             });
         }
 
-        // Kiểm tra người dùng có phải là người gửi hoặc người nhận tin nhắn
         if (message.senderEmail !== userEmail && message.receiverEmail !== userEmail) {
             return res.status(403).json({
                 success: false,
@@ -209,7 +219,6 @@ exports.deleteMessage = async (req, res) => {
             });
         }
 
-        // Xóa tin nhắn
         await Message.deleteMessage(messageId);
 
         res.status(200).json({
