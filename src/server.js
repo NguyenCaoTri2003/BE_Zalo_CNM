@@ -16,6 +16,8 @@ const { initializeSocket } = require('./services/socket');
 
 const User = require('./models/user.model');
 const Message = require('./models/message.model');
+const Group = require('./models/group.model');
+const GroupMessage = require('./models/groupMessage.model');
 
 const app = express();
 const server = http.createServer(app);
@@ -62,7 +64,7 @@ app.use('/socket.io/', (req, res, next) => {
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
-// Initialize DynamoDB
+// Initialize DynamoDB tables
 User.createUsersTable().catch(err => {
     console.error('Error initializing DynamoDB:', err);
 });
@@ -71,16 +73,34 @@ Message.createTable().catch(err => {
     console.error('Error creating Messages table:', err);
 });
 
+Group.createTable().catch(err => {
+    console.error('Error creating Groups table:', err);
+});
+
+GroupMessage.createTable().catch(err => {
+    console.error('Error creating GroupMessages table:', err);
+});
+
+// Add io instance to request object
+app.use((req, res, next) => {
+    req.io = io;
+    next();
+});
+
 // Routes
 const userRoutes = require('./routes/user.routes');
 const uploadRoutes = require('./routes/upload.routes');
 const messageRoutes = require('./routes/message.routes');
 const fileRoutes = require('./routes/file.routes');
+const groupRoutes = require('./routes/group.routes');
+const groupMessageRoutes = require('./routes/groupMessage.routes');
 
 app.use('/api', userRoutes);
 app.use('/api', uploadRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/files', fileRoutes);
+app.use('/api/groups', groupRoutes);
+app.use('/api/groups', groupMessageRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

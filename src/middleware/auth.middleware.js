@@ -18,7 +18,12 @@ const authenticateToken = async (req, res, next) => {
             return res.status(403).json({ message: 'User not found' });
         }
         
-        req.user = decoded;
+        // Thêm thông tin user vào request
+        req.user = {
+            ...decoded,
+            id: decoded.userId // Đảm bảo có trường id
+        };
+        
         next();
     } catch (err) {
         return res.status(403).json({ message: 'Invalid or expired token' });

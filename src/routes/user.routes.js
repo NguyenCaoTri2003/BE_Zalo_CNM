@@ -3,6 +3,7 @@ const router = express.Router();
 const UserController = require('../controllers/user.controller');
 const authenticateToken = require('../middleware/auth.middleware');
 const upload = require('../config/multer.config');
+const jwt = require('jsonwebtoken');
 
 // Test route
 router.get('/test', (req, res) => {
@@ -38,5 +39,36 @@ router.post('/friend-request/withdraw', authenticateToken, UserController.withdr
 router.get('/friend-requests', authenticateToken, UserController.getFriendRequests);
 router.get('/friends', authenticateToken, UserController.getFriends);
 router.post('/friends/unfriend', authenticateToken, UserController.unfriend);
+
+// Route test để lấy token
+router.post('/test-token', (req, res) => {
+    try {
+        const userId = req.body.userId || 'test-user-id';
+        // Tạo token với đầy đủ thông tin
+        const tokenData = {
+            userId: userId,
+            email: `test-${userId}@example.com`,
+            iat: Math.floor(Date.now() / 1000)
+        };
+        
+        const token = jwt.sign(tokenData, process.env.JWT_SECRET || 'your-secret-key');
+        
+        console.log('Generated token data:', tokenData); // Debug log
+        
+        res.json({ 
+            success: true,
+            data: {
+                token,
+                userId
+            }
+        });
+    } catch (error) {
+        console.error('Error generating token:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
 
 module.exports = router; 
