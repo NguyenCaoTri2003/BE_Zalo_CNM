@@ -2,6 +2,7 @@ const AWS = require('aws-sdk');
 const dynamoDB = new AWS.DynamoDB.DocumentClient();
 const dynamoDBService = new AWS.DynamoDB();
 const TABLE_NAME = 'Groups';
+const User = require('./user.model');
 
 class Group {
     static async createTable() {
@@ -28,6 +29,61 @@ class Group {
             } else {
                 throw error;
             }
+        }
+    }
+
+    static async getGroupsByMember(userId) {
+        const params = {
+            TableName: TABLE_NAME,
+            FilterExpression: 'contains(members, :userId)',
+            ExpressionAttributeValues: {
+                ':userId': userId
+            }
+        };
+
+        try {
+            const result = await dynamoDB.scan(params).promise();
+            const groups = result.Items || [];
+            
+            // Chuyển đổi cấu trúc dữ liệu để phù hợp với frontend
+            const groupsWithMembers = await Promise.all(groups.map(async group => {
+                // Lấy thông tin chi tiết của tất cả thành viên
+                const memberPromises = group.members.map(async memberId => {
+                    try {
+                        const user = await User.getUserById(memberId);
+                        if (user) {
+                            return {
+                                email: user.email,
+                                fullName: user.fullName || user.email.split('@')[0],
+                                avatar: user.avatar || 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg',
+                                role: group.admins.includes(memberId) ? 'admin' : 'member',
+                                joinedAt: group.createdAt
+                            };
+                        }
+                        return null;
+                    } catch (error) {
+                        console.error(`Error getting user info for ${memberId}:`, error);
+                        return null;
+                    }
+                });
+
+                const members = (await Promise.all(memberPromises)).filter(member => member !== null);
+
+                return {
+                    ...group,
+                    members,
+                    lastMessage: group.lastMessage || (group.messages && group.messages.length > 0 ? {
+                        content: group.messages[group.messages.length - 1].content,
+                        senderEmail: group.messages[group.messages.length - 1].senderEmail,
+                        timestamp: group.messages[group.messages.length - 1].createdAt
+                    } : undefined)
+                };
+            }));
+
+            return groupsWithMembers;
+        } catch (error) {
+            console.error('Error getting groups by member:', error);
+            return [];
         }
     }
 
@@ -58,6 +114,8 @@ class Group {
                 creatorId: groupData.creatorId,
                 members: members,
                 admins: admins,
+                messages: [], // Initialize empty messages array
+                avatar: groupData.avatar || 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg',
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
             }
@@ -85,7 +143,7 @@ class Group {
             Key: {
                 groupId: groupId
             },
-            UpdateExpression: 'set #name = :name, description = :description, members = :members, admins = :admins, updatedAt = :updatedAt',
+            UpdateExpression: 'set #name = :name, description = :description, members = :members, admins = :admins, avatar = :avatar, updatedAt = :updatedAt',
             ExpressionAttributeNames: {
                 '#name': 'name'
             },
@@ -94,6 +152,7 @@ class Group {
                 ':description': updateData.description,
                 ':members': updateData.members,
                 ':admins': updateData.admins,
+                ':avatar': updateData.avatar,
                 ':updatedAt': new Date().toISOString()
             },
             ReturnValues: 'ALL_NEW'
@@ -203,6 +262,37 @@ class Group {
             ExpressionAttributeValues: {
                 ':admins': Array.from(admins),
                 ':updatedAt': new Date().toISOString()
+            },
+            ReturnValues: 'ALL_NEW'
+        };
+
+        const result = await dynamoDB.update(params).promise();
+        return result.Attributes;
+    }
+
+    static async addMessage(groupId, message) {
+        const group = await this.getGroup(groupId);
+        if (!group) {
+            throw new Error('Group not found');
+        }
+
+        const messages = group.messages || [];
+        messages.push(message);
+
+        // Cập nhật tin nhắn cuối cùng
+        const lastMessage = {
+            content: message.content,
+            senderEmail: message.senderEmail,
+            timestamp: message.createdAt
+        };
+
+        const params = {
+            TableName: TABLE_NAME,
+            Key: { groupId },
+            UpdateExpression: 'SET messages = :messages, lastMessage = :lastMessage',
+            ExpressionAttributeValues: {
+                ':messages': messages,
+                ':lastMessage': lastMessage
             },
             ReturnValues: 'ALL_NEW'
         };

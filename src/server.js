@@ -17,7 +17,6 @@ const { initializeSocket } = require('./services/socket');
 const User = require('./models/user.model');
 const Message = require('./models/message.model');
 const Group = require('./models/group.model');
-const GroupMessage = require('./models/groupMessage.model');
 
 const app = express();
 const server = http.createServer(app);
@@ -77,10 +76,6 @@ Group.createTable().catch(err => {
     console.error('Error creating Groups table:', err);
 });
 
-GroupMessage.createTable().catch(err => {
-    console.error('Error creating GroupMessages table:', err);
-});
-
 // Add io instance to request object
 app.use((req, res, next) => {
     req.io = io;
@@ -93,14 +88,12 @@ const uploadRoutes = require('./routes/upload.routes');
 const messageRoutes = require('./routes/message.routes');
 const fileRoutes = require('./routes/file.routes');
 const groupRoutes = require('./routes/group.routes');
-const groupMessageRoutes = require('./routes/groupMessage.routes');
 
 app.use('/api', userRoutes);
 app.use('/api', uploadRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/files', fileRoutes);
 app.use('/api/groups', groupRoutes);
-app.use('/api/groups', groupMessageRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

@@ -24,13 +24,20 @@ class User {
     static async getUserByEmail(email) {
         const params = {
             TableName: 'Users',
-            FilterExpression: 'email = :email',
+            IndexName: 'EmailIndex',
+            KeyConditionExpression: 'email = :email',
             ExpressionAttributeValues: {
                 ':email': email
             }
         };
-        const result = await docClient.scan(params).promise();
-        return result.Items && result.Items.length > 0 ? result.Items[0] : null;
+        
+        try {
+            const result = await docClient.query(params).promise();
+            return result.Items[0];
+        } catch (error) {
+            console.error('Error getting user by email:', error);
+            return null;
+        }
     }
 
     static async getUserById(userId) {
