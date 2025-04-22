@@ -3,7 +3,7 @@ const User = require('../models/user.model');
 const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
 const path = require('path');
-const { s3 } = require('../config/aws.config');
+const { s3, docClient: dynamoDB } = require('../config/aws.config');
 
 // Cấu hình multer để lưu file trong memory
 const storage = multer.memoryStorage();
@@ -864,17 +864,31 @@ class GroupController {
 
             const message = group.messages[messageIndex];
 
-            // Check if user is the sender of the message
-            if (message.senderId !== userId) {
+            // Check if user is admin or the sender of the message
+            const isAdmin = group.admins && group.admins.includes(userId);
+            const isSender = message.senderId === userId;
+            
+            // Check if message is within recall time limit (2 minutes)
+            const messageTime = new Date(message.createdAt);
+            const currentTime = new Date();
+            const timeDiff = (currentTime - messageTime) / 1000 / 60; // Convert to minutes
+            
+            if (!isAdmin && !isSender) {
                 return res.status(403).json({
                     success: false,
-                    message: 'You can only recall your own messages'
+                    message: 'Bạn không có quyền thu hồi tin nhắn này'
+                });
+            }
+
+            if (!isAdmin && timeDiff > 2) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Chỉ có thể thu hồi tin nhắn trong vòng 2 phút'
                 });
             }
 
             // Mark message as recalled
             message.isRecalled = true;
-            message.content = 'Tin nhắn đã được thu hồi';
             message.updatedAt = new Date().toISOString();
 
             // Update the message in the group
