@@ -902,6 +902,75 @@ class GroupController {
             });
         }
     }
+
+    // Update group information (name, avatar)
+    static async updateGroupInfo(req, res) {
+        try {
+            const { groupId } = req.params;
+            const { name } = req.body;
+            const userId = req.user.userId || req.user.id;
+
+            // Kiểm tra nhóm tồn tại
+            const group = await Group.getGroup(groupId);
+            if (!group) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Group not found'
+                });
+            }
+
+            // Kiểm tra quyền admin
+            if (!group.admins.includes(userId)) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Only admins can update group details'
+                });
+            }
+
+            // Xử lý upload avatar nếu có
+            let avatarUrl = group.avatar;
+            if (req.file) {
+                const uniqueFilename = `${uuidv4()}${path.extname(req.file.originalname)}`;
+                const fileType = req.file.mimetype;
+                const isImage = fileType.startsWith('image/');
+
+                // Xác định thư mục lưu trữ
+                const folder = 'group-avatars';
+
+                // Upload file lên S3
+                const s3Params = {
+                    Bucket: process.env.AWS_BUCKET_NAME,
+                    Key: `${folder}/${groupId}/${uniqueFilename}`,
+                    Body: req.file.buffer,
+                    ContentType: fileType,
+                    ACL: 'public-read'
+                };
+
+                const s3Response = await s3.upload(s3Params).promise();
+                avatarUrl = s3Response.Location;
+            }
+
+            // Cập nhật thông tin nhóm
+            const updatedGroup = await Group.updateGroup(groupId, {
+                name: name || group.name,
+                description: group.description,
+                avatar: avatarUrl,
+                members: group.members,
+                admins: group.admins
+            });
+
+            res.json({
+                success: true,
+                data: updatedGroup
+            });
+        } catch (error) {
+            console.error('Error updating group info:', error);
+            res.status(500).json({
+                success: false,
+                message: error.message || 'Failed to update group information'
+            });
+        }
+    }
 }
 
 module.exports = GroupController; 

@@ -35,4 +35,7 @@ router.delete('/:groupId/admins', GroupController.removeAdmin);
 router.post('/:groupId/upload', GroupController.uploadMiddleware, GroupController.uploadGroupFile);
 router.get('/:groupId/files/:filename', GroupController.getGroupFile);
 
+// Thêm route mới cho API updateGroupInfo
+router.put('/:groupId/info', GroupController.uploadMiddleware, GroupController.updateGroupInfo);
+
 module.exports = router; 
