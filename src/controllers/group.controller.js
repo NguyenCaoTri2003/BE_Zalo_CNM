@@ -4,7 +4,6 @@ const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
 const path = require('path');
 const { s3 } = require('../config/aws.config');
-const dynamoDB = require('../config/dynamoDB.config');
 
 // Cấu hình multer để lưu file trong memory
 const storage = multer.memoryStorage();
