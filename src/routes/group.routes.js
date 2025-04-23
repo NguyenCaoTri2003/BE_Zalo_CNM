@@ -18,7 +18,11 @@ router.delete('/:groupId', GroupController.deleteGroup);
 
 // Group messages routes
 router.get('/:groupId/messages', GroupController.getGroupMessages);
+router.get('/:groupId/members', GroupController.getGroupMembers);
 router.post('/:groupId/messages', GroupController.sendGroupMessage);
+router.post('/:groupId/messages/:messageId/reactions', GroupController.addReactionToGroupMessage);
+router.post('/:groupId/messages/:messageId/forward', GroupController.forwardMessage);
+router.put('/:groupId/messages/:messageId/recall', GroupController.recallMessage);
 
 // Member management routes
 router.post('/:groupId/members', GroupController.addMember);
@@ -27,5 +31,12 @@ router.delete('/:groupId/members', GroupController.removeMember);
 // Admin management routes
 router.post('/:groupId/admins', GroupController.addAdmin);
 router.delete('/:groupId/admins', GroupController.removeAdmin);
+
+// Group file routes
+router.post('/:groupId/upload', GroupController.uploadMiddleware, GroupController.uploadGroupFile);
+router.get('/:groupId/files/:filename', GroupController.getGroupFile);
+
+// Thêm route mới cho API updateGroupInfo
+router.put('/:groupId/info', GroupController.uploadMiddleware, GroupController.updateGroupInfo);
 
 module.exports = router; 

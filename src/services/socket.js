@@ -1,9 +1,11 @@
 const socketIO = require('socket.io');
 const jwt = require('jsonwebtoken');
 const User = require('../models/user.model');
+const Group = require('../models/group.model');
 
 let io;
 const userSockets = new Map(); // Lưu trữ socket connections của users
+const groupSockets = new Map(); // Lưu trữ socket connections của groups
 
 const initializeSocket = (server) => {
     io = socketIO(server, {
@@ -61,6 +63,183 @@ const initializeSocket = (server) => {
             userSockets.set(userEmail, new Set());
         }
         userSockets.get(userEmail).add(socket.id);
+
+        // Tham gia vào các nhóm chat mà user đã là thành viên
+        socket.on('joinGroups', async () => {
+            try {
+                const user = await User.getUserByEmail(userEmail);
+                if (!user || !user.groups) return;
+
+                user.groups.forEach(groupId => {
+                    socket.join(`group:${groupId}`);
+                    if (!groupSockets.has(groupId)) {
+                        groupSockets.set(groupId, new Set());
+                    }
+                    groupSockets.get(groupId).add(socket.id);
+                });
+
+                // Gửi danh sách nhóm cho user
+                const groups = await Group.getGroupsByIds(user.groups);
+                socket.emit('groupList', {
+                    groups: groups.map(group => ({
+                        id: group.id,
+                        name: group.name,
+                        avatar: group.avatar,
+                        members: group.members,
+                        lastMessage: group.lastMessage,
+                        unreadCount: group.unreadCount
+                    }))
+                });
+            } catch (error) {
+                console.error('Join groups error:', error);
+            }
+        });
+
+        // Tạo nhóm chat mới
+        socket.on('createGroup', async (data) => {
+            try {
+                const { name, members } = data;
+                const creatorEmail = socket.user.email;
+
+                // Tạo nhóm mới trong database
+                const newGroup = await Group.createGroup({
+                    name,
+                    creator: creatorEmail,
+                    members: [...members, creatorEmail]
+                });
+
+                // Thông báo cho tất cả thành viên
+                const allMembers = [...members, creatorEmail];
+                allMembers.forEach(memberEmail => {
+                    const memberSockets = userSockets.get(memberEmail);
+                    if (memberSockets) {
+                        memberSockets.forEach(socketId => {
+                            io.to(socketId).emit('groupCreated', {
+                                group: {
+                                    id: newGroup.id,
+                                    name: newGroup.name,
+                                    avatar: newGroup.avatar,
+                                    members: newGroup.members,
+                                    creator: newGroup.creator
+                                }
+                            });
+                        });
+                    }
+                });
+
+                // Thêm socket vào room của nhóm
+                socket.join(`group:${newGroup.id}`);
+                if (!groupSockets.has(newGroup.id)) {
+                    groupSockets.set(newGroup.id, new Set());
+                }
+                groupSockets.get(newGroup.id).add(socket.id);
+
+            } catch (error) {
+                console.error('Create group error:', error);
+                socket.emit('groupError', {
+                    error: 'Failed to create group'
+                });
+            }
+        });
+
+        // Gửi tin nhắn trong nhóm
+        socket.on('groupMessage', async (data) => {
+            try {
+                const { groupId, message } = data;
+                const senderEmail = socket.user.email;
+
+                // Lưu tin nhắn vào database
+                const savedMessage = await Group.addMessage(groupId, {
+                    sender: senderEmail,
+                    content: message.content,
+                    type: message.type,
+                    timestamp: new Date()
+                });
+
+                // Gửi tin nhắn tới tất cả thành viên trong nhóm
+                const group = await Group.getGroupById(groupId);
+                if (!group) return;
+
+                group.members.forEach(memberEmail => {
+                    if (memberEmail !== senderEmail) {
+                        const memberSockets = userSockets.get(memberEmail);
+                        if (memberSockets) {
+                            memberSockets.forEach(socketId => {
+                                io.to(socketId).emit('newGroupMessage', {
+                                    groupId,
+                                    message: {
+                                        ...savedMessage,
+                                        sender: senderEmail
+                                    }
+                                });
+                            });
+                        }
+                    }
+                });
+
+                // Gửi xác nhận cho người gửi
+                socket.emit('groupMessageSent', {
+                    success: true,
+                    messageId: savedMessage.id
+                });
+
+            } catch (error) {
+                console.error('Group message error:', error);
+                socket.emit('groupMessageSent', {
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        // Thêm thành viên vào nhóm
+        socket.on('addGroupMembers', async (data) => {
+            try {
+                const { groupId, newMembers } = data;
+                const adderEmail = socket.user.email;
+
+                // Kiểm tra quyền và thêm thành viên
+                const updatedGroup = await Group.addMembers(groupId, newMembers, adderEmail);
+
+                // Thông báo cho tất cả thành viên mới
+                newMembers.forEach(memberEmail => {
+                    const memberSockets = userSockets.get(memberEmail);
+                    if (memberSockets) {
+                        memberSockets.forEach(socketId => {
+                            io.to(socketId).emit('groupJoined', {
+                                group: {
+                                    id: updatedGroup.id,
+                                    name: updatedGroup.name,
+                                    avatar: updatedGroup.avatar,
+                                    members: updatedGroup.members
+                                }
+                            });
+                        });
+                    }
+                });
+
+                // Thông báo cho tất cả thành viên hiện tại
+                updatedGroup.members.forEach(memberEmail => {
+                    if (!newMembers.includes(memberEmail)) {
+                        const memberSockets = userSockets.get(memberEmail);
+                        if (memberSockets) {
+                            memberSockets.forEach(socketId => {
+                                io.to(socketId).emit('groupMembersUpdated', {
+                                    groupId,
+                                    newMembers
+                                });
+                            });
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error('Add group members error:', error);
+                socket.emit('groupError', {
+                    error: 'Failed to add members to group'
+                });
+            }
+        });
 
         // Xử lý sự kiện gửi tin nhắn mới
         socket.on('newMessage', async (data) => {
@@ -398,6 +577,16 @@ const initializeSocket = (server) => {
                     userSockets.delete(userEmail);
                 }
             }
+
+            // Xóa socket khỏi các nhóm
+            groupSockets.forEach((sockets, groupId) => {
+                if (sockets.has(socket.id)) {
+                    sockets.delete(socket.id);
+                    if (sockets.size === 0) {
+                        groupSockets.delete(groupId);
+                    }
+                }
+            });
         });
     });
 

@@ -300,6 +300,11 @@ class Group {
         const result = await dynamoDB.update(params).promise();
         return result.Attributes;
     }
+
+    // Find group by ID (alias for getGroup)
+    static async findById(groupId) {
+        return this.getGroup(groupId);
+    }
 }
 
 module.exports = Group; 

@@ -1,8 +1,147 @@
 const Group = require('../models/group.model');
 const User = require('../models/user.model');
 const { v4: uuidv4 } = require('uuid');
+const multer = require('multer');
+const path = require('path');
+const { s3, docClient: dynamoDB } = require('../config/aws.config');
+
+// Cấu hình multer để lưu file trong memory
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 50 * 1024 * 1024, // Giới hạn kích thước file 50MB
+  },
+  fileFilter: function (req, file, cb) {
+    // Cho phép tất cả các loại file
+    cb(null, true);
+  }
+});
 
 class GroupController {
+  // Middleware để xử lý upload file
+  static uploadMiddleware = upload.single('file');
+
+  // API upload file cho group
+  static async uploadGroupFile(req, res) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'Không có file được tải lên',
+          error: 'NO_FILE'
+        });
+      }
+
+      const { groupId } = req.params;
+      const userId = req.user.userId || req.user.id;
+
+      // Kiểm tra group tồn tại
+      const group = await Group.getGroup(groupId);
+      if (!group) {
+        return res.status(404).json({
+          success: false,
+          message: 'Group không tồn tại'
+        });
+      }
+
+      // Kiểm tra người dùng có phải là thành viên của group
+      if (!group.members.includes(userId)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Bạn không phải là thành viên của group này'
+        });
+      }
+
+      // Tạo tên file ngẫu nhiên
+      const uniqueFilename = `${uuidv4()}${path.extname(req.file.originalname)}`;
+      const fileType = req.file.mimetype;
+      const isImage = fileType.startsWith('image/');
+
+      // Xác định thư mục lưu trữ
+      const folder = isImage ? 'group-images' : 'group-files';
+
+      // Upload file lên S3
+      const s3Params = {
+        Bucket: process.env.AWS_BUCKET_NAME,
+        Key: `${folder}/${groupId}/${uniqueFilename}`,
+        Body: req.file.buffer,
+        ContentType: fileType,
+        ACL: 'public-read'
+      };
+
+      const s3Response = await s3.upload(s3Params).promise();
+
+      // Trả về thông tin file
+      return res.status(200).json({
+        success: true,
+        data: {
+          filename: uniqueFilename,
+          originalname: req.file.originalname,
+          mimetype: fileType,
+          size: req.file.size,
+          url: s3Response.Location,
+          type: isImage ? 'image' : 'file'
+        }
+      });
+    } catch (error) {
+      console.error('Lỗi khi upload file:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Lỗi khi upload file',
+        error: error.message
+      });
+    }
+  }
+
+  // API lấy file của group
+  static async getGroupFile(req, res) {
+    try {
+      const { groupId, filename } = req.params;
+      const { type } = req.query; // 'image' hoặc 'file'
+      const userId = req.user.userId || req.user.id;
+
+      // Kiểm tra group tồn tại
+      const group = await Group.getGroup(groupId);
+      if (!group) {
+        return res.status(404).json({
+          success: false,
+          message: 'Group không tồn tại'
+        });
+      }
+
+      // Kiểm tra người dùng có phải là thành viên của group
+      if (!group.members.includes(userId)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Bạn không phải là thành viên của group này'
+        });
+      }
+
+      // Xác định thư mục dựa trên loại file
+      const folder = type === 'image' ? 'group-images' : 'group-files';
+
+      // Lấy file từ S3
+      const s3Params = {
+        Bucket: process.env.AWS_BUCKET_NAME,
+        Key: `${folder}/${groupId}/${filename}`
+      };
+
+      const s3Response = await s3.getObject(s3Params).promise();
+      
+      res.setHeader('Content-Type', s3Response.ContentType);
+      res.setHeader('Content-Length', s3Response.ContentLength);
+      res.send(s3Response.Body);
+    } catch (error) {
+      console.error('Lỗi khi lấy file:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Lỗi khi lấy file',
+        error: error.message
+      });
+    }
+  }
+
     // Get all groups for the current user
     static async getGroups(req, res) {
         try {
@@ -531,6 +670,375 @@ class GroupController {
             res.status(500).json({
                 success: false,
                 message: error.message
+            });
+        }
+    }
+
+    // Get group members
+    static async getGroupMembers(req, res) {
+        try {
+            const { groupId } = req.params;
+            const userId = req.user.userId || req.user.id;
+            const userEmail = req.user.email;
+
+            const group = await Group.getGroup(groupId);
+            if (!group) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Group not found'
+                });
+            }
+
+            // Check if user is a member of the group
+            if (!group.members.includes(userId)) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You are not a member of this group'
+                });
+            }
+
+            // Get all member details
+            const memberDetails = await Promise.all(
+                group.members.map(async (memberId) => {
+                    const user = await User.getUserById(memberId);
+                    return {
+                        email: user.email,
+                        fullName: user.fullName,
+                        avatar: user.avatar,
+                        role: group.admins.includes(memberId) ? 'admin' : 'member',
+                        joinedAt: group.createdAt // Since we don't track join date separately
+                    };
+                })
+            );
+
+            return res.json({
+                success: true,
+                data: {
+                    members: memberDetails
+                }
+            });
+        } catch (error) {
+            console.error('Error getting group members:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Internal server error'
+            });
+        }
+    }
+
+    // Add reaction to group message
+    static async addReactionToGroupMessage(req, res) {
+        try {
+            const { groupId } = req.params;
+            const { messageId } = req.params;
+            const { reaction } = req.body;
+            const userId = req.user.userId || req.user.id;
+            const userEmail = req.user.email;
+
+            const group = await Group.getGroup(groupId);
+            if (!group) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Group not found'
+                });
+            }
+
+            // Check if user is a member of the group
+            if (!group.members.includes(userId)) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You are not a member of this group'
+                });
+            }
+
+            // Find the message
+            const messageIndex = group.messages.findIndex(msg => msg.messageId === messageId);
+            if (messageIndex === -1) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Message not found'
+                });
+            }
+
+            const message = group.messages[messageIndex];
+            
+            // Initialize reactions array if it doesn't exist
+            if (!message.reactions) {
+                message.reactions = [];
+            }
+
+            // Check if user already reacted with this emoji
+            const existingReactionIndex = message.reactions.findIndex(
+                r => r.senderEmail === userEmail && r.reaction === reaction
+            );
+
+            if (existingReactionIndex !== -1) {
+                // Remove reaction if it already exists
+                message.reactions.splice(existingReactionIndex, 1);
+            } else {
+                // Add new reaction
+                message.reactions.push({
+                    messageId,
+                    reaction,
+                    senderEmail: userEmail
+                });
+            }
+
+            // Update the message in the group
+            const params = {
+                TableName: 'Groups',
+                Key: { groupId },
+                UpdateExpression: 'SET messages = :messages',
+                ExpressionAttributeValues: {
+                    ':messages': group.messages
+                },
+                ReturnValues: 'ALL_NEW'
+            };
+
+            const result = await dynamoDB.update(params).promise();
+
+            return res.json({
+                success: true,
+                data: message
+            });
+        } catch (error) {
+            console.error('Error adding reaction to group message:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Internal server error'
+            });
+        }
+    }
+
+    // Forward message to another group
+    static async forwardMessage(req, res) {
+        try {
+            const { groupId } = req.params;
+            const { messageId, targetGroupId } = req.body;
+            const userId = req.user.userId || req.user.id;
+            const userEmail = req.user.email;
+
+            // Get source group
+            const sourceGroup = await Group.getGroup(groupId);
+            if (!sourceGroup) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Source group not found'
+                });
+            }
+
+            // Get target group
+            const targetGroup = await Group.getGroup(targetGroupId);
+            if (!targetGroup) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Target group not found'
+                });
+            }
+
+            // Check if user is a member of both groups
+            if (!sourceGroup.members.includes(userId) || !targetGroup.members.includes(userId)) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You must be a member of both groups to forward messages'
+                });
+            }
+
+            // Find the message in source group
+            const sourceMessage = sourceGroup.messages.find(msg => msg.messageId === messageId);
+            if (!sourceMessage) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Message not found'
+                });
+            }
+
+            // Create forwarded message
+            const forwardedMessage = {
+                messageId: uuidv4(),
+                groupId: targetGroupId,
+                senderId: userId,
+                senderEmail: userEmail,
+                content: sourceMessage.content,
+                type: sourceMessage.type,
+                metadata: sourceMessage.metadata,
+                isForwarded: true,
+                originalMessageId: messageId,
+                originalGroupId: groupId,
+                isDeleted: false,
+                isRecalled: false,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            };
+
+            // Add message to target group
+            const updatedTargetGroup = await Group.addMessage(targetGroupId, forwardedMessage);
+
+            return res.json({
+                success: true,
+                data: forwardedMessage
+            });
+        } catch (error) {
+            console.error('Error forwarding message:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Internal server error'
+            });
+        }
+    }
+
+    // Recall message
+    static async recallMessage(req, res) {
+        try {
+            const { groupId } = req.params;
+            const { messageId } = req.params;
+            const userId = req.user.userId || req.user.id;
+
+            const group = await Group.getGroup(groupId);
+            if (!group) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Group not found'
+                });
+            }
+
+            // Check if user is a member of the group
+            if (!group.members.includes(userId)) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You are not a member of this group'
+                });
+            }
+
+            // Find the message
+            const messageIndex = group.messages.findIndex(msg => msg.messageId === messageId);
+            if (messageIndex === -1) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Message not found'
+                });
+            }
+
+            const message = group.messages[messageIndex];
+
+            // Check if user is admin or the sender of the message
+            const isAdmin = group.admins && group.admins.includes(userId);
+            const isSender = message.senderId === userId;
+            
+            // Check if message is within recall time limit (2 minutes)
+            const messageTime = new Date(message.createdAt);
+            const currentTime = new Date();
+            const timeDiff = (currentTime - messageTime) / 1000 / 60; // Convert to minutes
+            
+            if (!isAdmin && !isSender) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Bạn không có quyền thu hồi tin nhắn này'
+                });
+            }
+
+            if (!isAdmin && timeDiff > 2) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Chỉ có thể thu hồi tin nhắn trong vòng 2 phút'
+                });
+            }
+
+            // Mark message as recalled
+            message.isRecalled = true;
+            message.updatedAt = new Date().toISOString();
+
+            // Update the message in the group
+            const params = {
+                TableName: 'Groups',
+                Key: { groupId },
+                UpdateExpression: 'SET messages = :messages',
+                ExpressionAttributeValues: {
+                    ':messages': group.messages
+                },
+                ReturnValues: 'ALL_NEW'
+            };
+
+            const result = await dynamoDB.update(params).promise();
+
+            return res.json({
+                success: true,
+                data: message
+            });
+        } catch (error) {
+            console.error('Error recalling message:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Internal server error'
+            });
+        }
+    }
+
+    // Update group information (name, avatar)
+    static async updateGroupInfo(req, res) {
+        try {
+            const { groupId } = req.params;
+            const { name } = req.body;
+            const userId = req.user.userId || req.user.id;
+
+            // Kiểm tra nhóm tồn tại
+            const group = await Group.getGroup(groupId);
+            if (!group) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Group not found'
+                });
+            }
+
+            // Kiểm tra quyền admin
+            if (!group.admins.includes(userId)) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Only admins can update group details'
+                });
+            }
+
+            // Xử lý upload avatar nếu có
+            let avatarUrl = group.avatar;
+            if (req.file) {
+                const uniqueFilename = `${uuidv4()}${path.extname(req.file.originalname)}`;
+                const fileType = req.file.mimetype;
+                const isImage = fileType.startsWith('image/');
+
+                // Xác định thư mục lưu trữ
+                const folder = 'group-avatars';
+
+                // Upload file lên S3
+                const s3Params = {
+                    Bucket: process.env.AWS_BUCKET_NAME,
+                    Key: `${folder}/${groupId}/${uniqueFilename}`,
+                    Body: req.file.buffer,
+                    ContentType: fileType,
+                    ACL: 'public-read'
+                };
+
+                const s3Response = await s3.upload(s3Params).promise();
+                avatarUrl = s3Response.Location;
+            }
+
+            // Cập nhật thông tin nhóm
+            const updatedGroup = await Group.updateGroup(groupId, {
+                name: name || group.name,
+                description: group.description,
+                avatar: avatarUrl,
+                members: group.members,
+                admins: group.admins
+            });
+
+            res.json({
+                success: true,
+                data: updatedGroup
+            });
+        } catch (error) {
+            console.error('Error updating group info:', error);
+            res.status(500).json({
+                success: false,
+                message: error.message || 'Failed to update group information'
             });
         }
     }
