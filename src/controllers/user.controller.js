@@ -653,6 +653,8 @@ class UserController {
                 `
             };
 
+            console.log("verificationCode:", verificationCode); 
+
             await transporter.sendMail(mailOptions);
 
             res.json({
@@ -981,6 +983,7 @@ class UserController {
                     const user = await User.getUserByEmail(friend.email);
                     return {
                         ...friend,
+                        userId: user.userId,
                         fullName: user.fullName,
                         avatar: user.avatar
                     };

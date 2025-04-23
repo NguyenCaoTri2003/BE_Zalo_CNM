@@ -12,6 +12,7 @@ router.get('/', GroupController.getGroups);
 // Group management routes
 router.post('/', GroupController.createGroup);
 router.get('/:groupId', GroupController.getGroup);
+router.get('/members/:groupId', GroupController.getGroupMembers);
 router.put('/:groupId', GroupController.updateGroup);
 router.delete('/:groupId', GroupController.deleteGroup);
 

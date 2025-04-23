@@ -117,6 +117,7 @@ class GroupController {
         try {
             const { groupId } = req.params;
             const group = await Group.getGroup(groupId);
+            console.log('Getting group details for groupId:', group); // Debug log
 
             if (!group) {
                 return res.status(404).json({
@@ -136,6 +137,62 @@ class GroupController {
             });
         }
     }
+
+    static async getGroupMembers(req, res) {
+        try {
+            const { groupId } = req.params;
+            const group = await Group.getGroup(groupId);
+    
+            if (!group || !group.members) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Group or members not found'
+                });
+            }
+    
+            // Khởi tạo mảng memberDetails để lưu trữ kết quả
+            const memberDetails = [];
+    
+            // Sử dụng vòng lặp for để xử lý từng thành viên
+            for (const userId of group.members) {
+                const user = await User.getUserById(userId);
+                if (!user) {
+                    // Nếu không tìm thấy user, có thể bỏ qua hoặc trả về null
+                    memberDetails.push(null);
+                    continue;  // Tiếp tục với thành viên tiếp theo
+                }
+    
+                memberDetails.push({
+                    userId: user.userId,
+                    fullName: user.fullName,
+                    avatar: user.avatar,
+                    role: group.admins.includes(user.userId) ? 'admin' : 'member'
+                });
+            }
+    
+            // Loại bỏ các giá trị null nếu có
+            const filteredMembers = memberDetails.filter(Boolean);
+    
+            // Trả về kết quả cuối cùng
+            res.json({
+                success: true,
+                data: {
+                    members: filteredMembers
+                }
+            });
+    
+            // In ra danh sách thành viên để debug
+            console.log('Member Details:', filteredMembers);
+    
+        } catch (error) {
+            res.status(500).json({
+                success: false,
+                message: error.message
+            });
+        }
+    }
+    
+    
 
     // Update group details
     static async updateGroup(req, res) {
