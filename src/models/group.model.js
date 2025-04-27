@@ -143,13 +143,12 @@ class Group {
             Key: {
                 groupId: groupId
             },
-            UpdateExpression: 'set #name = :name, description = :description, members = :members, admins = :admins, avatar = :avatar, updatedAt = :updatedAt',
+            UpdateExpression: 'set #name = :name,  members = :members, admins = :admins, avatar = :avatar, updatedAt = :updatedAt',
             ExpressionAttributeNames: {
                 '#name': 'name'
             },
             ExpressionAttributeValues: {
                 ':name': updateData.name,
-                ':description': updateData.description,
                 ':members': updateData.members,
                 ':admins': updateData.admins,
                 ':avatar': updateData.avatar,

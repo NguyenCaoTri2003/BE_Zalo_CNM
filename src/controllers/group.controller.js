@@ -337,7 +337,7 @@ class GroupController {
     static async updateGroup(req, res) {
         try {
             const { groupId } = req.params;
-            const { name, description, avatar } = req.body;
+            const { name, avatar } = req.body;
             const userId = req.user.userId || req.user.id;
 
             const group = await Group.getGroup(groupId);
@@ -357,7 +357,6 @@ class GroupController {
 
             const updatedGroup = await Group.updateGroup(groupId, {
                 name,
-                description,
                 avatar: avatar || group.avatar,
                 members: group.members,
                 admins: group.admins
@@ -486,6 +485,38 @@ class GroupController {
         }
     }
 
+    //remove member web
+    static removeMemberWeb = async (req, res) => {
+        try {
+            const { groupId, memberId } = req.params;
+            const userId = req.user.userId || req.user.id;
+    
+            const group = await Group.getGroup(groupId);
+            if (!group) {
+                return res.status(404).json({ success: false, message: 'Group not found' });
+            }
+    
+            if (!group.admins.includes(userId)) {
+                return res.status(403).json({ success: false, message: 'Only admins can remove members' });
+            }
+    
+            if (group.creatorId === memberId) {
+                return res.status(403).json({ success: false, message: 'Cannot remove group creator' });
+            }
+    
+            if (group.admins.includes(memberId)) {
+                return res.status(403).json({ success: false, message: 'Cannot remove another admin' });
+            }
+    
+            const updatedGroup = await Group.removeMember(groupId, memberId);
+    
+            res.json({ success: true, data: updatedGroup });
+        } catch (error) {
+            console.error('Error removing member:', error);
+            res.status(500).json({ success: false, message: error.message });
+        }
+    };
+
     // Add admin to group
     static async addAdmin(req, res) {
         try {
@@ -525,7 +556,7 @@ class GroupController {
     static async removeAdmin(req, res) {
         try {
             const { groupId } = req.params;
-            const { adminId } = req.body;
+            const { adminId } = req.query;
             const userId = req.user.userId || req.user.id;
 
             const group = await Group.getGroup(groupId);
@@ -675,56 +706,56 @@ class GroupController {
     }
 
     // Get group members
-    static async getGroupMembers(req, res) {
-        try {
-            const { groupId } = req.params;
-            const userId = req.user.userId || req.user.id;
-            const userEmail = req.user.email;
+    // static async getGroupMembers(req, res) {
+    //     try {
+    //         const { groupId } = req.params;
+    //         const userId = req.user.userId || req.user.id;
+    //         const userEmail = req.user.email;
 
-            const group = await Group.getGroup(groupId);
-            if (!group) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Group not found'
-                });
-            }
+    //         const group = await Group.getGroup(groupId);
+    //         if (!group) {
+    //             return res.status(404).json({
+    //                 success: false,
+    //                 message: 'Group not found'
+    //             });
+    //         }
 
-            // Check if user is a member of the group
-            if (!group.members.includes(userId)) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'You are not a member of this group'
-                });
-            }
+    //         // Check if user is a member of the group
+    //         if (!group.members.includes(userId)) {
+    //             return res.status(403).json({
+    //                 success: false,
+    //                 message: 'You are not a member of this group'
+    //             });
+    //         }
 
-            // Get all member details
-            const memberDetails = await Promise.all(
-                group.members.map(async (memberId) => {
-                    const user = await User.getUserById(memberId);
-                    return {
-                        email: user.email,
-                        fullName: user.fullName,
-                        avatar: user.avatar,
-                        role: group.admins.includes(memberId) ? 'admin' : 'member',
-                        joinedAt: group.createdAt // Since we don't track join date separately
-                    };
-                })
-            );
+    //         // Get all member details
+    //         const memberDetails = await Promise.all(
+    //             group.members.map(async (memberId) => {
+    //                 const user = await User.getUserById(memberId);
+    //                 return {
+    //                     email: user.email,
+    //                     fullName: user.fullName,
+    //                     avatar: user.avatar,
+    //                     role: group.admins.includes(memberId) ? 'admin' : 'member',
+    //                     joinedAt: group.createdAt // Since we don't track join date separately
+    //                 };
+    //             })
+    //         );
 
-            return res.json({
-                success: true,
-                data: {
-                    members: memberDetails
-                }
-            });
-        } catch (error) {
-            console.error('Error getting group members:', error);
-            return res.status(500).json({
-                success: false,
-                message: 'Internal server error'
-            });
-        }
-    }
+    //         return res.json({
+    //             success: true,
+    //             data: {
+    //                 members: memberDetails
+    //             }
+    //         });
+    //     } catch (error) {
+    //         console.error('Error getting group members:', error);
+    //         return res.status(500).json({
+    //             success: false,
+    //             message: 'Internal server error'
+    //         });
+    //     }
+    // }
 
     // Add reaction to group message
     static async addReactionToGroupMessage(req, res) {

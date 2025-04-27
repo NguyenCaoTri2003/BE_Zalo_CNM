@@ -18,6 +18,7 @@ router.post('/register', UserController.register);
 // Authentication routes
 router.post('/login', UserController.login);
 router.get('/profile', authenticateToken, UserController.getProfile);
+router.get('/profile/:email', authenticateToken, UserController.getProfileByEmail);
 router.put('/profile', authenticateToken, UserController.updateProfile);
 router.put('/profileweb', authenticateToken, UserController.updateProfileWeb);
 

@@ -194,6 +194,41 @@ class UserController {
         }
     }
 
+    static async getProfileByEmail(req, res) {
+        try {
+            const { email } = req.params;
+    
+            const user = await User.getUserByEmail(email);
+    
+            if (!user) {
+                return res.status(404).json({ 
+                    success: false,
+                    message: 'Không tìm thấy thông tin người dùng',
+                    error: 'USER_NOT_FOUND'
+                });
+            }
+    
+            delete user.password;
+    
+            if (!user.avatar) {
+                user.avatar = 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg';
+            }
+    
+            res.json({
+                success: true,
+                user
+            });
+        } catch (error) {
+            console.error('Profile error:', error);
+            res.status(500).json({ 
+                success: false,
+                message: 'Lỗi server, vui lòng thử lại sau',
+                error: 'SERVER_ERROR'
+            });
+        }
+    }
+    
+
     static async forgotPassword(req, res) {
         try {
             const { email } = req.body;
