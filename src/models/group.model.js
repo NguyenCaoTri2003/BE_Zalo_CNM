@@ -114,6 +114,7 @@ class Group {
                 creatorId: groupData.creatorId,
                 members: members,
                 admins: admins,
+                deputies: [],
                 messages: [], // Initialize empty messages array
                 avatar: groupData.avatar || 'https://res.cloudinary.com/ds4v3awds/image/upload/v1743944990/l2eq6atjnmzpppjqkk1j.jpg',
                 createdAt: new Date().toISOString(),
@@ -143,7 +144,7 @@ class Group {
             Key: {
                 groupId: groupId
             },
-            UpdateExpression: 'set #name = :name,  members = :members, admins = :admins, avatar = :avatar, updatedAt = :updatedAt',
+            UpdateExpression: 'set #name = :name, members = :members, admins = :admins, deputies = :deputies, avatar = :avatar, updatedAt = :updatedAt',
             ExpressionAttributeNames: {
                 '#name': 'name'
             },
@@ -151,6 +152,7 @@ class Group {
                 ':name': updateData.name,
                 ':members': updateData.members,
                 ':admins': updateData.admins,
+                ':deputies': updateData.deputies || [],
                 ':avatar': updateData.avatar,
                 ':updatedAt': new Date().toISOString()
             },
@@ -300,9 +302,102 @@ class Group {
         return result.Attributes;
     }
 
+    static async addMembers(groupId, memberIds) {
+        try {
+            const group = await this.getGroup(groupId);
+            if (!group) throw new Error('Group not found');
+
+            console.log('Current group members:', group.members);
+            console.log('Adding new members:', memberIds);
+
+            // Tạo Set từ danh sách thành viên hiện tại
+            const members = new Set(group.members || []);
+            
+            // Thêm các thành viên mới vào Set
+            memberIds.forEach(id => {
+                if (id && !members.has(id)) {
+                    members.add(id);
+                }
+            });
+
+            console.log('Updated members list:', Array.from(members));
+
+            const params = {
+                TableName: TABLE_NAME,
+                Key: {
+                    groupId: groupId
+                },
+                UpdateExpression: 'set members = :members, updatedAt = :updatedAt',
+                ExpressionAttributeValues: {
+                    ':members': Array.from(members),
+                    ':updatedAt': new Date().toISOString()
+                },
+                ReturnValues: 'ALL_NEW'
+            };
+
+            console.log('DynamoDB update params:', JSON.stringify(params, null, 2));
+
+            const result = await dynamoDB.update(params).promise();
+            console.log('DynamoDB update result:', JSON.stringify(result, null, 2));
+
+            return result.Attributes;
+        } catch (error) {
+            console.error('Error in addMembers:', error);
+            throw error;
+        }
+    }
+
     // Find group by ID (alias for getGroup)
     static async findById(groupId) {
         return this.getGroup(groupId);
+    }
+
+    static async addDeputy(groupId, deputyId) {
+        const group = await this.getGroup(groupId);
+        if (!group) throw new Error('Group not found');
+
+        const deputies = new Set(group.deputies || []);
+        deputies.add(deputyId);
+
+        const params = {
+            TableName: TABLE_NAME,
+            Key: {
+                groupId: groupId
+            },
+            UpdateExpression: 'set deputies = :deputies, updatedAt = :updatedAt',
+            ExpressionAttributeValues: {
+                ':deputies': Array.from(deputies),
+                ':updatedAt': new Date().toISOString()
+            },
+            ReturnValues: 'ALL_NEW'
+        };
+
+        const result = await dynamoDB.update(params).promise();
+        return result.Attributes;
+    }
+
+    static async removeDeputy(groupId, deputyId) {
+        const group = await this.getGroup(groupId);
+        if (!group) throw new Error('Group not found');
+
+        const deputies = new Set(group.deputies || []);
+        deputies.delete(deputyId);
+
+        const params = {
+            TableName: TABLE_NAME,
+            Key: {
+                groupId: groupId
+            },
+            UpdateExpression: 'set deputies = :deputies, updatedAt = :updatedAt',
+            ExpressionAttributeValues: {
+                ':deputies': Array.from(deputies),
+                ':updatedAt': new Date().toISOString()
+            },
+            ReturnValues: 'ALL_NEW'
+        };
+
+        const result = await dynamoDB.update(params).promise();
+        return result.Attributes;
     }
 }
 

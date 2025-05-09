@@ -54,9 +54,16 @@ class Message {
                         senderEmail: message.senderEmail,
                         receiverEmail: message.receiverEmail,
                         content: message.content,
-                        createdAt: message.createdAt.toISOString(),
-                        status: message.status,
-                        reactions: message.reactions || []
+                        type: message.type || 'text',
+                        metadata: message.metadata || {},
+                        createdAt: message.createdAt,
+                        status: message.status || 'sent',
+                        reactions: message.reactions || [],
+                        isForwarded: message.isForwarded || false,
+                        originalMessageId: message.originalMessageId,
+                        originalGroupId: message.originalGroupId,
+                        isDeleted: message.isDeleted || false,
+                        isRecalled: message.isRecalled || false
                     }]
                 },
                 ReturnValues: 'ALL_NEW'
@@ -80,9 +87,16 @@ class Message {
                         senderEmail: message.senderEmail,
                         receiverEmail: message.receiverEmail,
                         content: message.content,
-                        createdAt: message.createdAt.toISOString(),
-                        status: message.status,
-                        reactions: message.reactions || []
+                        type: message.type || 'text',
+                        metadata: message.metadata || {},
+                        createdAt: message.createdAt,
+                        status: message.status || 'sent',
+                        reactions: message.reactions || [],
+                        isForwarded: message.isForwarded || false,
+                        originalMessageId: message.originalMessageId,
+                        originalGroupId: message.originalGroupId,
+                        isDeleted: message.isDeleted || false,
+                        isRecalled: message.isRecalled || false
                     }]
                 }
             };
@@ -129,8 +143,14 @@ class Message {
                 return [];
             }
             
+            // Filter out messages that are deleted for the current user
+            const filteredMessages = conversation.messages.filter(message => {
+                if (!message.deletedFor) return true;
+                return !message.deletedFor.includes(senderEmail);
+            });
+            
             // Sort messages by time
-            return conversation.messages.sort((a, b) => {
+            return filteredMessages.sort((a, b) => {
                 const dateA = new Date(a.createdAt).getTime();
                 const dateB = new Date(b.createdAt).getTime();
                 return dateA - dateB;
@@ -302,8 +322,17 @@ class Message {
             throw new Error('Message not found');
         }
 
-        // Remove the message from the array
-        targetConversation.messages.splice(messageIndex, 1);
+        const message = targetConversation.messages[messageIndex];
+        
+        // Initialize deletedFor array if it doesn't exist
+        if (!message.deletedFor) {
+            message.deletedFor = [];
+        }
+
+        // Add sender to deletedFor array if not already there
+        if (!message.deletedFor.includes(message.senderEmail)) {
+            message.deletedFor.push(message.senderEmail);
+        }
 
         const params = {
             TableName: TABLE_NAME,
@@ -313,12 +342,13 @@ class Message {
             UpdateExpression: 'SET messages = :messages',
             ExpressionAttributeValues: {
                 ':messages': targetConversation.messages
-            }
+            },
+            ReturnValues: 'ALL_NEW'
         };
 
         try {
-            await dynamoDB.update(params).promise();
-            return true;
+            const result = await dynamoDB.update(params).promise();
+            return result.Attributes.messages[messageIndex];
         } catch (error) {
             console.error('Error deleting message:', error);
             throw error;

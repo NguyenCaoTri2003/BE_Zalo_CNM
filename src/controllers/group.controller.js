@@ -4,6 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
 const path = require('path');
 const { s3, docClient: dynamoDB } = require('../config/aws.config');
+const Message = require('../models/message.model');
 
 // Cấu hình multer để lưu file trong memory
 const storage = multer.memoryStorage();
@@ -228,6 +229,7 @@ class GroupController {
                 members: [...new Set([creatorId, ...validMemberIds])],
                 admins: [creatorId],
                 messages: [],
+                allowMemberInvite: false, // Mặc định không cho phép thành viên thêm người khác
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
             };
@@ -277,6 +279,7 @@ class GroupController {
         }
     }
 
+    // Get group members
     static async getGroupMembers(req, res) {
         try {
             const { groupId } = req.params;
@@ -289,30 +292,34 @@ class GroupController {
                 });
             }
     
-            // Khởi tạo mảng memberDetails để lưu trữ kết quả
             const memberDetails = [];
     
-            // Sử dụng vòng lặp for để xử lý từng thành viên
             for (const userId of group.members) {
                 const user = await User.getUserById(userId);
                 if (!user) {
-                    // Nếu không tìm thấy user, có thể bỏ qua hoặc trả về null
-                    memberDetails.push(null);
-                    continue;  // Tiếp tục với thành viên tiếp theo
+                    console.log('User not found for ID:', userId);
+                    continue;
+                }
+    
+                let role = 'member';
+                if (group.admins.includes(userId)) {
+                    role = 'admin';
+                } else if (group.deputies && group.deputies.includes(userId)) {
+                    role = 'deputy';
                 }
     
                 memberDetails.push({
                     userId: user.userId,
+                    email: user.email,
                     fullName: user.fullName,
                     avatar: user.avatar,
-                    role: group.admins.includes(user.userId) ? 'admin' : 'member'
+                    role: role,
+                    joinedAt: group.createdAt
                 });
             }
     
-            // Loại bỏ các giá trị null nếu có
             const filteredMembers = memberDetails.filter(Boolean);
     
-            // Trả về kết quả cuối cùng
             res.json({
                 success: true,
                 data: {
@@ -320,10 +327,10 @@ class GroupController {
                 }
             });
     
-            // In ra danh sách thành viên để debug
             console.log('Member Details:', filteredMembers);
     
         } catch (error) {
+            console.error('Error in getGroupMembers:', error);
             res.status(500).json({
                 success: false,
                 message: error.message
@@ -408,11 +415,10 @@ class GroupController {
         }
     }
 
-    // Add member to group
-    static async addMember(req, res) {
+    // Toggle member invitation permission
+    static async toggleMemberInvite(req, res) {
         try {
             const { groupId } = req.params;
-            const { memberId } = req.body;
             const userId = req.user.userId || req.user.id;
 
             const group = await Group.getGroup(groupId);
@@ -423,22 +429,92 @@ class GroupController {
                 });
             }
 
+            // Chỉ admin mới có quyền thay đổi cài đặt này
             if (!group.admins.includes(userId)) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Only admins can add members'
+                    message: 'Chỉ admin mới có quyền thay đổi cài đặt này'
                 });
             }
 
-            const updatedGroup = await Group.addMember(groupId, memberId);
+            // Đảo ngược trạng thái allowMemberInvite
+            const updatedGroup = await Group.updateGroup(groupId, {
+                ...group,
+                allowMemberInvite: !group.allowMemberInvite
+            });
+
             res.json({
                 success: true,
                 data: updatedGroup
             });
         } catch (error) {
+            console.error('Error toggling member invite permission:', error);
             res.status(500).json({
                 success: false,
-                message: error.message
+                message: error.message || 'Failed to update member invite permission'
+            });
+        }
+    }
+
+    // Add member to group (updated with permission check)
+    static async addMember(req, res) {
+        try {
+            const { groupId } = req.params;
+            const { memberIds } = req.body;
+            const userId = req.user.userId || req.user.id;
+
+            console.log('Adding members to group:', { groupId, memberIds, userId });
+
+            const group = await Group.getGroup(groupId);
+            if (!group) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Group not found'
+                });
+            }
+
+            // Kiểm tra quyền thêm thành viên
+            const isAdmin = group.admins.includes(userId);
+            const canInvite = group.allowMemberInvite;
+
+            if (!isAdmin && !canInvite) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Bạn không có quyền thêm thành viên vào nhóm này'
+                });
+            }
+
+            // Kiểm tra xem memberIds có phải là mảng không
+            if (!Array.isArray(memberIds)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'memberIds must be an array'
+                });
+            }
+
+            // Lọc bỏ các ID không hợp lệ
+            const validMemberIds = memberIds.filter(id => id && typeof id === 'string');
+            
+            if (validMemberIds.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'No valid member IDs provided'
+                });
+            }
+
+            // Thêm nhiều thành viên cùng lúc
+            const updatedGroup = await Group.addMembers(groupId, validMemberIds);
+            console.log('Updated group after adding members:', updatedGroup);
+
+            res.json({
+                success: true,
+                data: updatedGroup
+            });
+        } catch (error) {
+            console.error('Error adding members:', error);
+            res.status(500).json({
+                success: false,
+                message: error.message || 'Failed to add members'
             });
         }
     }
@@ -521,7 +597,7 @@ class GroupController {
     static async addAdmin(req, res) {
         try {
             const { groupId } = req.params;
-            const { adminId } = req.body;
+            const { memberId } = req.body;
             const userId = req.user.userId || req.user.id;
 
             const group = await Group.getGroup(groupId);
@@ -532,14 +608,28 @@ class GroupController {
                 });
             }
 
-            if (group.creatorId !== userId) {
+            // Kiểm tra người thực hiện có phải là admin hiện tại không
+            if (!group.admins.includes(userId)) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Only group creator can add admins'
+                    message: 'Chỉ admin hiện tại mới có thể chuyển quyền'
                 });
             }
 
-            const updatedGroup = await Group.addAdmin(groupId, adminId);
+            // Kiểm tra người được chọn có phải là thành viên của nhóm không
+            if (!group.members.includes(memberId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Người được chọn không phải là thành viên của nhóm'
+                });
+            }
+
+            // Xóa quyền admin của người hiện tại và thêm quyền admin cho người mới
+            const updatedGroup = await Group.updateGroup(groupId, {
+                ...group,
+                admins: [memberId] // Chỉ giữ lại 1 admin duy nhất
+            });
+
             res.json({
                 success: true,
                 data: updatedGroup
@@ -556,7 +646,7 @@ class GroupController {
     static async removeAdmin(req, res) {
         try {
             const { groupId } = req.params;
-            const { adminId } = req.query;
+            const { memberId } = req.body;
             const userId = req.user.userId || req.user.id;
 
             const group = await Group.getGroup(groupId);
@@ -567,22 +657,28 @@ class GroupController {
                 });
             }
 
-            if (group.creatorId !== userId) {
+            // Kiểm tra người thực hiện có phải là admin hiện tại không
+            if (!group.admins.includes(userId)) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Only group creator can remove admins'
+                    message: 'Chỉ admin hiện tại mới có thể chuyển quyền'
                 });
             }
 
             // Prevent removing the group creator as admin
-            if (adminId === group.creatorId) {
+            if (memberId === group.creatorId) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Cannot remove group creator as admin'
+                    message: 'Không thể xóa quyền admin của người tạo nhóm'
                 });
             }
 
-            const updatedGroup = await Group.removeAdmin(groupId, adminId);
+            // Xóa quyền admin của người được chọn
+            const updatedGroup = await Group.updateGroup(groupId, {
+                ...group,
+                admins: group.admins.filter(id => id !== memberId)
+            });
+
             res.json({
                 success: true,
                 data: updatedGroup
@@ -705,58 +801,6 @@ class GroupController {
         }
     }
 
-    // Get group members
-    // static async getGroupMembers(req, res) {
-    //     try {
-    //         const { groupId } = req.params;
-    //         const userId = req.user.userId || req.user.id;
-    //         const userEmail = req.user.email;
-
-    //         const group = await Group.getGroup(groupId);
-    //         if (!group) {
-    //             return res.status(404).json({
-    //                 success: false,
-    //                 message: 'Group not found'
-    //             });
-    //         }
-
-    //         // Check if user is a member of the group
-    //         if (!group.members.includes(userId)) {
-    //             return res.status(403).json({
-    //                 success: false,
-    //                 message: 'You are not a member of this group'
-    //             });
-    //         }
-
-    //         // Get all member details
-    //         const memberDetails = await Promise.all(
-    //             group.members.map(async (memberId) => {
-    //                 const user = await User.getUserById(memberId);
-    //                 return {
-    //                     email: user.email,
-    //                     fullName: user.fullName,
-    //                     avatar: user.avatar,
-    //                     role: group.admins.includes(memberId) ? 'admin' : 'member',
-    //                     joinedAt: group.createdAt // Since we don't track join date separately
-    //                 };
-    //             })
-    //         );
-
-    //         return res.json({
-    //             success: true,
-    //             data: {
-    //                 members: memberDetails
-    //             }
-    //         });
-    //     } catch (error) {
-    //         console.error('Error getting group members:', error);
-    //         return res.status(500).json({
-    //             success: false,
-    //             message: 'Internal server error'
-    //         });
-    //     }
-    // }
-
     // Add reaction to group message
     static async addReactionToGroupMessage(req, res) {
         try {
@@ -841,11 +885,11 @@ class GroupController {
         }
     }
 
-    // Forward message to another group
+    // Forward message
     static async forwardMessage(req, res) {
         try {
-            const { groupId } = req.params;
-            const { messageId, targetGroupId } = req.body;
+            const { groupId, messageId } = req.params;
+            const { targetGroupId, targetEmail } = req.body;
             const userId = req.user.userId || req.user.id;
             const userEmail = req.user.email;
 
@@ -858,23 +902,6 @@ class GroupController {
                 });
             }
 
-            // Get target group
-            const targetGroup = await Group.getGroup(targetGroupId);
-            if (!targetGroup) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Target group not found'
-                });
-            }
-
-            // Check if user is a member of both groups
-            if (!sourceGroup.members.includes(userId) || !targetGroup.members.includes(userId)) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'You must be a member of both groups to forward messages'
-                });
-            }
-
             // Find the message in source group
             const sourceMessage = sourceGroup.messages.find(msg => msg.messageId === messageId);
             if (!sourceMessage) {
@@ -884,31 +911,117 @@ class GroupController {
                 });
             }
 
-            // Create forwarded message
-            const forwardedMessage = {
-                messageId: uuidv4(),
-                groupId: targetGroupId,
-                senderId: userId,
-                senderEmail: userEmail,
-                content: sourceMessage.content,
-                type: sourceMessage.type,
-                metadata: sourceMessage.metadata,
-                isForwarded: true,
-                originalMessageId: messageId,
-                originalGroupId: groupId,
-                isDeleted: false,
-                isRecalled: false,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            };
+            // Check if user is a member of source group
+            if (!sourceGroup.members.includes(userId)) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'You must be a member of the source group to forward messages'
+                });
+            }
 
-            // Add message to target group
-            const updatedTargetGroup = await Group.addMessage(targetGroupId, forwardedMessage);
+            // Handle forwarding to group
+            if (targetGroupId) {
+                const targetGroup = await Group.getGroup(targetGroupId);
+                if (!targetGroup) {
+                    return res.status(404).json({
+                        success: false,
+                        message: 'Target group not found'
+                    });
+                }
 
-            return res.json({
-                success: true,
-                data: forwardedMessage
-            });
+                // Check if user is a member of target group
+                if (!targetGroup.members.includes(userId)) {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'You must be a member of the target group to forward messages'
+                    });
+                }
+
+                // Create forwarded message for group
+                const forwardedMessage = {
+                    messageId: uuidv4(),
+                    groupId: targetGroupId,
+                    senderId: userId,
+                    senderEmail: userEmail,
+                    content: sourceMessage.content,
+                    type: sourceMessage.type,
+                    metadata: sourceMessage.metadata,
+                    isForwarded: true,
+                    originalMessageId: messageId,
+                    originalGroupId: groupId,
+                    isDeleted: false,
+                    isRecalled: false,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                };
+
+                // Add message to target group
+                await Group.addMessage(targetGroupId, forwardedMessage);
+
+                return res.json({
+                    success: true,
+                    data: forwardedMessage
+                });
+            }
+            // Handle forwarding to friend
+            else if (targetEmail) {
+                // Check if target user exists
+                const targetUser = await User.getUserByEmail(targetEmail);
+                if (!targetUser) {
+                    return res.status(404).json({
+                        success: false,
+                        message: 'Target user not found'
+                    });
+                }
+
+                // Create forwarded message for friend
+                const forwardedMessage = {
+                    messageId: uuidv4(),
+                    senderId: userId,
+                    senderEmail: userEmail,
+                    receiverEmail: targetEmail,
+                    content: sourceMessage.content,
+                    type: sourceMessage.type,
+                    metadata: sourceMessage.metadata,
+                    isForwarded: true,
+                    originalMessageId: messageId,
+                    originalGroupId: groupId,
+                    isDeleted: false,
+                    isRecalled: false,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                    status: 'sent'
+                };
+
+                try {
+                    // Add message to conversation
+                    const savedMessage = await Message.create(forwardedMessage);
+
+                    // Emit socket event for real-time update
+                    const io = req.app.get('io');
+                    if (io) {
+                        io.to(targetEmail).emit('newMessage', savedMessage);
+                        io.to(userEmail).emit('newMessage', savedMessage);
+                    }
+
+                    return res.json({
+                        success: true,
+                        data: savedMessage
+                    });
+                } catch (error) {
+                    console.error('Error adding forwarded message:', error);
+                    return res.status(500).json({
+                        success: false,
+                        message: 'Error forwarding message to friend'
+                    });
+                }
+            }
+            else {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Either targetGroupId or targetEmail must be provided'
+                });
+            }
         } catch (error) {
             console.error('Error forwarding message:', error);
             return res.status(500).json({
@@ -1012,7 +1125,6 @@ class GroupController {
             const { name } = req.body;
             const userId = req.user.userId || req.user.id;
 
-            // Kiểm tra nhóm tồn tại
             const group = await Group.getGroup(groupId);
             if (!group) {
                 return res.status(404).json({
@@ -1021,11 +1133,14 @@ class GroupController {
                 });
             }
 
-            // Kiểm tra quyền admin
-            if (!group.admins.includes(userId)) {
+            // Kiểm tra quyền admin hoặc deputy
+            const isAdmin = group.admins.includes(userId);
+            const isDeputy = group.deputies && group.deputies.includes(userId);
+            
+            if (!isAdmin && !isDeputy) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Only admins can update group details'
+                    message: 'Chỉ trưởng nhóm hoặc phó trưởng nhóm mới có thể cập nhật thông tin nhóm'
                 });
             }
 
@@ -1070,6 +1185,283 @@ class GroupController {
             res.status(500).json({
                 success: false,
                 message: error.message || 'Failed to update group information'
+            });
+        }
+    }
+
+    // Leave group
+    static async leaveGroup(req, res) {
+        try {
+            const { groupId } = req.params;
+            const userId = req.user.userId || req.user.id;
+
+            console.log('User attempting to leave group:', { userId, groupId }); // Debug log
+
+            const group = await Group.getGroup(groupId);
+            if (!group) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Group not found'
+                });
+            }
+
+            // Kiểm tra người dùng có phải là thành viên của nhóm không
+            if (!group.members.includes(userId)) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Bạn không phải là thành viên của nhóm này'
+                });
+            }
+
+            // Xóa người dùng khỏi danh sách thành viên và admin
+            const updatedGroup = await Group.updateGroup(groupId, {
+                ...group,
+                members: group.members.filter(id => id !== userId),
+                admins: group.admins.filter(id => id !== userId)
+            });
+
+            console.log('User successfully left group:', { userId, groupId }); // Debug log
+
+            res.json({
+                success: true,
+                data: updatedGroup
+            });
+        } catch (error) {
+            console.error('Error leaving group:', error);
+            res.status(500).json({
+                success: false,
+                message: error.message || 'Failed to leave group'
+            });
+        }
+    }
+
+    // Add deputy to group
+    static async addDeputy(req, res) {
+        try {
+            const { groupId } = req.params;
+            const { memberId } = req.body;
+            const userId = req.user.userId || req.user.id;
+
+            const group = await Group.getGroup(groupId);
+            if (!group) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Group not found'
+                });
+            }
+
+            // Kiểm tra người thực hiện có phải là admin không
+            if (!group.admins.includes(userId)) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Chỉ admin mới có thể thêm phó trưởng nhóm'
+                });
+            }
+
+            // Kiểm tra người được chọn có phải là thành viên của nhóm không
+            if (!group.members.includes(memberId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Người được chọn không phải là thành viên của nhóm'
+                });
+            }
+
+            // Kiểm tra người được chọn đã là admin chưa
+            if (group.admins.includes(memberId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Người được chọn đã là trưởng nhóm'
+                });
+            }
+
+            // Thêm phó trưởng nhóm
+            const updatedGroup = await Group.addDeputy(groupId, memberId);
+
+            res.json({
+                success: true,
+                data: updatedGroup
+            });
+        } catch (error) {
+            res.status(500).json({
+                success: false,
+                message: error.message
+            });
+        }
+    }
+
+    // Remove deputy from group
+    static async removeDeputy(req, res) {
+        try {
+            const { groupId } = req.params;
+            const { memberId } = req.body;
+            const userId = req.user.userId || req.user.id;
+
+            const group = await Group.getGroup(groupId);
+            if (!group) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Group not found'
+                });
+            }
+
+            // Kiểm tra người thực hiện có phải là admin không
+            if (!group.admins.includes(userId)) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Chỉ admin mới có thể xóa phó trưởng nhóm'
+                });
+            }
+
+            // Xóa phó trưởng nhóm
+            const updatedGroup = await Group.removeDeputy(groupId, memberId);
+
+            res.json({
+                success: true,
+                data: updatedGroup
+            });
+        } catch (error) {
+            res.status(500).json({
+                success: false,
+                message: error.message
+            });
+        }
+    }
+
+    // Update member role
+    static async updateMemberRole(req, res) {
+        try {
+            const { groupId, memberId } = req.params;
+            const { role } = req.body;
+            const userId = req.user.userId || req.user.id;
+
+            const group = await Group.getGroup(groupId);
+            if (!group) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Group not found'
+                });
+            }
+
+            // Kiểm tra người thực hiện có phải là admin không
+            if (!group.admins.includes(userId)) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Chỉ admin mới có thể thay đổi vai trò thành viên'
+                });
+            }
+
+            // Kiểm tra người được chọn có phải là thành viên của nhóm không
+            if (!group.members.includes(memberId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Người được chọn không phải là thành viên của nhóm'
+                });
+            }
+
+            // Không cho phép thay đổi vai trò của người tạo nhóm
+            if (memberId === group.creatorId) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Không thể thay đổi vai trò của người tạo nhóm'
+                });
+            }
+
+            let updatedGroup;
+            switch (role) {
+                case 'admin':
+                    // Cập nhật danh sách admin, chỉ giữ lại 1 admin duy nhất
+                    updatedGroup = await Group.updateGroup(groupId, {
+                        ...group,
+                        admins: [memberId] // Chỉ giữ lại 1 admin duy nhất
+                    });
+                    break;
+                case 'deputy':
+                    // Thêm vào danh sách deputy
+                    updatedGroup = await Group.addDeputy(groupId, memberId);
+                    break;
+                case 'member':
+                    // Xóa khỏi danh sách admin và deputy
+                    updatedGroup = await Group.removeAdmin(groupId, memberId);
+                    updatedGroup = await Group.removeDeputy(groupId, memberId);
+                    break;
+                default:
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Vai trò không hợp lệ'
+                    });
+            }
+
+            res.json({
+                success: true,
+                data: updatedGroup
+            });
+        } catch (error) {
+            console.error('Error updating member role:', error);
+            res.status(500).json({
+                success: false,
+                message: error.message || 'Failed to update member role'
+            });
+        }
+    }
+
+    // Delete message for current user only
+    static async deleteMessageForUser(req, res) {
+        try {
+            const { groupId, messageId } = req.params;
+            const userId = req.user.userId || req.user.id;
+            const userEmail = req.user.email;
+
+            const group = await Group.getGroup(groupId);
+            if (!group) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Group not found'
+                });
+            }
+
+            // Find the message
+            const messageIndex = group.messages.findIndex(msg => msg.messageId === messageId);
+            if (messageIndex === -1) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Message not found'
+                });
+            }
+
+            const message = group.messages[messageIndex];
+
+            // Initialize deletedFor array if it doesn't exist
+            if (!message.deletedFor) {
+                message.deletedFor = [];
+            }
+
+            // Add user to deletedFor array if not already there
+            if (!message.deletedFor.includes(userEmail)) {
+                message.deletedFor.push(userEmail);
+            }
+
+            // Update the message in the group
+            const params = {
+                TableName: 'Groups',
+                Key: { groupId },
+                UpdateExpression: 'SET messages = :messages',
+                ExpressionAttributeValues: {
+                    ':messages': group.messages
+                },
+                ReturnValues: 'ALL_NEW'
+            };
+
+            await dynamoDB.update(params).promise();
+
+            return res.json({
+                success: true,
+                message: 'Message deleted for current user'
+            });
+        } catch (error) {
+            console.error('Error deleting message for user:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Internal server error'
             });
         }
     }

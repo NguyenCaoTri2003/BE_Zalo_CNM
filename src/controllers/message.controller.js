@@ -19,7 +19,7 @@ exports.sendMessage = async (req, res) => {
             senderEmail,
             receiverEmail,
             content,
-            createdAt: new Date(),
+            createdAt: new Date().toISOString(),
             status: 'sent'
         };
 
@@ -212,18 +212,19 @@ exports.deleteMessage = async (req, res) => {
             });
         }
 
-        if (message.senderEmail !== userEmail && message.receiverEmail !== userEmail) {
+        if (message.senderEmail !== userEmail) {
             return res.status(403).json({
                 success: false,
-                error: 'You can only delete messages you sent or received'
+                error: 'You can only delete your own messages'
             });
         }
 
-        await Message.deleteMessage(messageId);
+        const updatedMessage = await Message.deleteMessage(messageId);
 
         res.status(200).json({
             success: true,
-            message: 'Message deleted successfully'
+            data: updatedMessage,
+            message: 'Message deleted for you'
         });
     } catch (error) {
         console.error('Error deleting message:', error);
