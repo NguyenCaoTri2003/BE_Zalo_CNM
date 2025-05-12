@@ -690,6 +690,54 @@ class GroupController {
             });
         }
     }
+    //removeadmin web
+    static async removeAdminWeb(req, res) {
+        try {
+            const { groupId } = req.params;
+            const { memberId } = req.query;
+            const userId = req.user.userId || req.user.id;
+
+            const group = await Group.getGroup(groupId);
+            if (!group) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Group not found'
+                });
+            }
+
+            // Kiểm tra người thực hiện có phải là admin hiện tại không
+            if (!group.admins.includes(userId)) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Chỉ admin hiện tại mới có thể chuyển quyền'
+                });
+            }
+
+            // Prevent removing the group creator as admin
+            if (memberId === group.creatorId) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Không thể xóa quyền admin của người tạo nhóm'
+                });
+            }
+
+            // Xóa quyền admin của người được chọn
+            const updatedGroup = await Group.updateGroup(groupId, {
+                ...group,
+                admins: group.admins.filter(id => id !== memberId)
+            });
+
+            res.json({
+                success: true,
+                data: updatedGroup
+            });
+        } catch (error) {
+            res.status(500).json({
+                success: false,
+                message: error.message
+            });
+        }
+    }
 
     // Send message to group
     static async sendGroupMessage(req, res) {
@@ -1146,6 +1194,7 @@ class GroupController {
 
             // Xử lý upload avatar nếu có
             let avatarUrl = group.avatar;
+
             if (req.file) {
                 const uniqueFilename = `${uuidv4()}${path.extname(req.file.originalname)}`;
                 const fileType = req.file.mimetype;
@@ -1294,6 +1343,44 @@ class GroupController {
         try {
             const { groupId } = req.params;
             const { memberId } = req.body;
+            const userId = req.user.userId || req.user.id;
+
+            const group = await Group.getGroup(groupId);
+            if (!group) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Group not found'
+                });
+            }
+
+            // Kiểm tra người thực hiện có phải là admin không
+            if (!group.admins.includes(userId)) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Chỉ admin mới có thể xóa phó trưởng nhóm'
+                });
+            }
+
+            // Xóa phó trưởng nhóm
+            const updatedGroup = await Group.removeDeputy(groupId, memberId);
+
+            res.json({
+                success: true,
+                data: updatedGroup
+            });
+        } catch (error) {
+            res.status(500).json({
+                success: false,
+                message: error.message
+            });
+        }
+    }
+
+    // Remove deputy from group
+    static async removeDeputyWeb(req, res) {
+        try {
+            const { groupId } = req.params;
+            const { memberId } = req.query;
             const userId = req.user.userId || req.user.id;
 
             const group = await Group.getGroup(groupId);

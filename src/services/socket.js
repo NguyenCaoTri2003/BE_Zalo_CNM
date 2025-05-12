@@ -346,9 +346,13 @@ const initializeSocket = (server) => {
             try {
                 const { status } = data;
                 const userEmail = socket.user.email;
+                // const { status, email } = data;
+
+                // // ✅ Gán lại vào socket để sử dụng sau
+                // socket.user = { email };
 
                 // Lấy danh sách bạn bè của người dùng
-                const user = await User.getUserByEmail(userEmail);
+                const user = await User.getUserByEmail(email);
                 if (!user || !user.friends) return;
 
                 // Gửi thông báo trạng thái cho tất cả bạn bè
@@ -357,12 +361,14 @@ const initializeSocket = (server) => {
                     if (friendSockets) {
                         friendSockets.forEach(socketId => {
                             io.to(socketId).emit('friendStatusUpdate', {
-                                email: userEmail,
+                                email: email,
                                 online: status === 'online'
                             });
                         });
                     }
+                    console.log('Gửi trạng thái tới:', friendEmail, 'Online:', status === 'online');
                 });
+                
             } catch (error) {
                 console.error('User status update error:', error);
             }

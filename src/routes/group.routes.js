@@ -34,10 +34,12 @@ router.put('/:groupId/members/:memberId/role', GroupController.updateMemberRole)
 // Admin management routes
 router.post('/:groupId/admins', GroupController.addAdmin);
 router.delete('/:groupId/admins', GroupController.removeAdmin);
+router.delete('/:groupId/adminsweb', GroupController.removeAdminWeb);
 
 // Deputy management routes
 router.post('/:groupId/deputies', GroupController.addDeputy);
 router.delete('/:groupId/deputies', GroupController.removeDeputy);
+router.delete('/:groupId/deputiesweb', GroupController.removeDeputyWeb);
 
 // Group file routes
 router.post('/:groupId/upload', GroupController.uploadMiddleware, GroupController.uploadGroupFile);
