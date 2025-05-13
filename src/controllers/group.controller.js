@@ -1284,6 +1284,63 @@ class GroupController {
         }
     }
 
+    // Leave group (web version)
+    static async leaveGroupWeb(req, res) {
+        try {
+            const { groupId } = req.params;
+            const userId = req.user.userId || req.user.id;
+
+            const group = await Group.getGroup(groupId);
+            if (!group) {
+            return res.status(404).json({
+                success: false,
+                message: 'Group not found'
+            });
+            }
+
+            // Kiểm tra người dùng có phải là thành viên của nhóm không
+            if (!group.members.includes(userId)) {
+            return res.status(403).json({
+                success: false,
+                message: 'Bạn không phải là thành viên của nhóm này'
+            });
+            }
+
+            // Loại bỏ người dùng khỏi danh sách thành viên
+            group.members = group.members.filter(id => id !== userId);
+
+            // Nếu người dùng là admin
+            if (group.admins.includes(userId)) {
+            group.admins = group.admins.filter(id => id !== userId);
+
+            // Nếu còn thành viên khác, chọn ngẫu nhiên một người làm admin
+            if (group.members.length > 0) {
+                const newAdminId = group.members[Math.floor(Math.random() * group.members.length)];
+                group.admins.push(newAdminId);
+            }
+            }
+
+            // Nếu người dùng là phó nhóm
+            if (group.deputies && group.deputies.includes(userId)) {
+            group.deputies = group.deputies.filter(id => id !== userId);
+            }
+
+            const updatedGroup = await Group.updateGroup(groupId, group);
+
+            res.json({
+            success: true,
+            data: updatedGroup
+            });
+        } catch (error) {
+            console.error('Error leaving group:', error);
+            res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to leave group'
+            });
+        }
+    }
+
+
     // Add deputy to group
     static async addDeputy(req, res) {
         try {

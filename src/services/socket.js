@@ -1,6 +1,8 @@
 const socketIO = require('socket.io');
 const jwt = require('jsonwebtoken');
 const User = require('../models/user.model');
+const Group = require('../models/group.model');
+const { v4: uuidv4 } = require('uuid');
 
 let io;
 const userSockets = new Map(); // Lưu trữ socket connections của users
@@ -84,6 +86,48 @@ const initializeSocket = (server) => {
             }
         });
 
+        // Xử lý sự kiện thêm người khác vào nhóm
+        socket.on('addMemberGroup', async ({ groupId, userId }) => {
+            try {
+                // Kiểm tra userId để xác nhận người cần vào nhóm là ai
+                console.log(`User ${userId} đang join group ${groupId}`);
+                
+                // Cho phép user tham gia phòng nhóm (socket.join)
+                socket.join(groupId);
+
+                // Thêm vào danh sách phòng
+                if (!groupRooms.has(groupId)) {
+                    groupRooms.set(groupId, new Set());
+                }
+                groupRooms.get(groupId).add(socket.id);
+
+                const user = await User.getUserById(userId); // Lấy thông tin tên/email
+                const joinMessage = {
+                    messageId: uuidv4(),
+                    groupId,
+                    senderId: 'system',
+                    action: 'join',
+                    senderEmail: 'system@chat.app',
+                    content: `${user.email}`, // Hoặc `${user.name}` nếu có
+                    type: 'system',
+                    isDeleted: false,
+                    isRecalled: false,
+                    isSystem: true,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                };
+
+                await Group.addMessage(groupId, joinMessage);
+
+                // ✅ Gửi cho các thành viên trong nhóm
+                socket.to(groupId).emit('groupMessageJoin', joinMessage);
+
+                console.log(`User ${userId} đã join group ${groupId}`);
+            } catch (error) {
+                console.error('Lỗi khi join group:', error);
+            }
+        });
+
         // Xử lý sự kiện gửi tin nhắn nhóm
         socket.on('groupMessage', async (data) => {
             try {
@@ -95,15 +139,17 @@ const initializeSocket = (server) => {
                 });
 
                 // Gửi tin nhắn tới tất cả thành viên trong nhóm
+                
                 io.to(groupId).emit('newGroupMessage', {
                     groupId,
                     message: {
                         ...message,
-                        senderEmail: userEmail
+                        //senderEmail: userEmail
                     }
                 });
 
                 // Gửi xác nhận lại cho người gửi
+                console.log('🔥 Emit newGroupMessage đến group:', groupId, 'với message:', message);
                 socket.emit('groupMessageSent', {
                     success: true,
                     messageId: message.messageId
@@ -139,6 +185,61 @@ const initializeSocket = (server) => {
                 console.error('Leave group error:', error);
             }
         });
+
+        // Xử lý sự kiện rời nhóm web version
+        socket.on('leaveGroupWeb', async (data) => {
+            console.log('🔥 leaveGroupWeb event received!', data);
+            try {
+                const { groupId, userEmail } = data; // Thêm userEmail vào thông tin
+                console.log('User leaving group web:', userEmail, 'groupId:', groupId);
+
+                const leaveMessage = {
+                    messageId: uuidv4(),
+                    groupId,
+                    senderId: 'system',
+                    senderEmail: 'system@chat.app',
+                    content: `${userEmail}`,
+                    type: 'system',
+                    action: 'leave',
+                    isDeleted: false,
+                    isRecalled: false,
+                    isSystem: true,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                };
+                
+                await Group.addMessage(groupId, leaveMessage);
+
+                // Gửi thông báo cho các thành viên còn lại trong nhóm
+                socket.to(groupId).emit('groupMessageLeave', leaveMessage);
+               
+
+                // Gửi thông báo cho các thành viên còn lại trong nhóm
+                // socket.to(groupId).emit('groupMessageLeave', {
+                //     type: 'system',
+                //     content: `${userEmail} đã rời khỏi nhóm.`,
+                //     groupId,
+                //     timestamp: new Date().toISOString(),
+                //     isSystem: true
+                // });
+
+                 // Rời khỏi phòng socket của nhóm
+                socket.leave(groupId);
+
+                // Xóa thông tin phòng (xử lý nhóm)
+                if (groupRooms.has(groupId)) {
+                    groupRooms.get(groupId).delete(socket.id);
+                    if (groupRooms.get(groupId).size === 0) {
+                        groupRooms.delete(groupId);
+                    }
+                }
+
+                console.log('User left group room:', groupId);
+            } catch (error) {
+                console.error('Leave group error:', error);
+            }
+        });
+
 
         // Xử lý sự kiện gửi tin nhắn mới
         socket.on('newMessage', async (data) => {

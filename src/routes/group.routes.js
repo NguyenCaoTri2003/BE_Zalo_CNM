@@ -51,6 +51,8 @@ router.post('/:groupId/info', GroupController.uploadMiddleware, GroupController.
 
 // Route để rời nhóm
 router.post('/:groupId/leave', GroupController.leaveGroup);
+router.post('/:groupId/leaveweb', GroupController.leaveGroupWeb);
+
 
 // Toggle member invitation permission
 router.post('/:groupId/toggle-member-invite', GroupController.toggleMemberInvite);

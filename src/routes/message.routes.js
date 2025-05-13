@@ -21,4 +21,5 @@ router.put('/recall/:messageId', authenticateToken, messageController.recallMess
 // Xóa tin nhắn
 router.delete('/delete/:messageId', authenticateToken, messageController.deleteMessage);
 
+
 module.exports = router; 

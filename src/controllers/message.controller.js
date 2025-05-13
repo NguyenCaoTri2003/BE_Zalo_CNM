@@ -203,7 +203,6 @@ exports.deleteMessage = async (req, res) => {
     try {
         const { messageId } = req.params;
         const userEmail = req.user.email;
-
         const message = await Message.findById(messageId);
         if (!message) {
             return res.status(404).json({

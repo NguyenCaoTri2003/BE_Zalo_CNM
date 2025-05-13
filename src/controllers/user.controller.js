@@ -1020,7 +1020,8 @@ class UserController {
                         ...friend,
                         userId: user.userId,
                         fullName: user.fullName,
-                        avatar: user.avatar
+                        avatar: user.avatar,
+                        phoneNumber: user.phoneNumber 
                     };
                 })
             );
