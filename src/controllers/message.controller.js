@@ -3,10 +3,10 @@ const { v4: uuidv4 } = require('uuid');
 
 exports.sendMessage = async (req, res) => {
     try {
-        const { content } = req.body;
+        const { content, type = 'text', fileData } = req.body;
         const senderEmail = req.user.email;
         const receiverEmail = req.body.receiverEmail;
-        
+
         if (!senderEmail || !receiverEmail || !content) {
             return res.status(400).json({ 
                 success: false,
@@ -19,6 +19,8 @@ exports.sendMessage = async (req, res) => {
             senderEmail,
             receiverEmail,
             content,
+            type,              // 👈 thêm type để phân biệt text/file
+            ...fileData,       // 👈 thêm metadata file nếu có
             createdAt: new Date().toISOString(),
             status: 'sent'
         };
@@ -36,6 +38,7 @@ exports.sendMessage = async (req, res) => {
         });
     }
 };
+
 
 exports.getMessages = async (req, res) => {
     try {
