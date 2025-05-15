@@ -395,10 +395,13 @@ class GroupController {
                 });
             }
 
-            if (group.creatorId !== userId) {
+            const isCreator = group.creatorId === userId;
+            const isAdmin = group.admins?.includes(userId);
+
+            if (!isCreator && !isAdmin) {
                 return res.status(403).json({
                     success: false,
-                    message: 'Only group creator can delete the group'
+                    message: 'Chỉ có admin hoặc người tạo nhóm mới có quyền xóa nhóm'
                 });
             }
 
@@ -438,10 +441,18 @@ class GroupController {
             }
 
             // Đảo ngược trạng thái allowMemberInvite
+            
+
+            console.log("✅ Trước khi cập nhật:", group.allowMemberInvite);
+
+            const currentInviteSetting = typeof group.allowMemberInvite === 'boolean' ? group.allowMemberInvite : false;
+
             const updatedGroup = await Group.updateGroup(groupId, {
                 ...group,
-                allowMemberInvite: !group.allowMemberInvite
+                allowMemberInvite: !currentInviteSetting
             });
+
+            console.log("✅ Sau khi cập nhật:", updatedGroup.allowMemberInvite);
 
             res.json({
                 success: true,
@@ -576,9 +587,9 @@ class GroupController {
                 return res.status(403).json({ success: false, message: 'Only admins can remove members' });
             }
     
-            if (group.creatorId === memberId) {
-                return res.status(403).json({ success: false, message: 'Cannot remove group creator' });
-            }
+            // if (group.creatorId === memberId) {
+            //     return res.status(403).json({ success: false, message: 'Cannot remove group creator' });
+            // }
     
             if (group.admins.includes(memberId)) {
                 return res.status(403).json({ success: false, message: 'Cannot remove another admin' });
@@ -641,6 +652,46 @@ class GroupController {
             });
         }
     }
+
+    //add admin web version
+    static async addAdminWeb(req, res) {
+        try {
+            const { groupId } = req.params;
+            const { memberId } = req.body;
+            const userId = req.user.userId || req.user.id;
+
+            const group = await Group.getGroup(groupId);
+            if (!group) {
+                return res.status(404).json({ success: false, message: 'Group not found' });
+            }
+
+            if (!group.admins.includes(userId)) {
+                return res.status(403).json({ success: false, message: 'Chỉ admin hiện tại mới có thể chuyển quyền' });
+            }
+
+            if (!group.members.includes(memberId)) {
+                return res.status(400).json({ success: false, message: 'Người được chọn không phải là thành viên của nhóm' });
+            }
+
+            // Cập nhật cả admin và creatorId
+            const updatedGroup = await Group.updateGroup(groupId, {
+                ...group,
+                admins: [memberId],        // B trở thành admin duy nhất
+                creatorId: memberId        // Đồng thời là người tạo nhóm
+            });
+
+            res.json({
+                success: true,
+                data: updatedGroup
+            });
+        } catch (error) {
+            res.status(500).json({
+                success: false,
+                message: error.message
+            });
+        }
+    }
+
 
     // Remove admin from group
     static async removeAdmin(req, res) {
@@ -1285,6 +1336,89 @@ class GroupController {
     }
 
     // Leave group (web version)
+    // static async leaveGroupWeb(req, res) {
+    //     try {
+    //         const { groupId } = req.params;
+    //         const userId = req.user.userId || req.user.id;
+
+    //         const group = await Group.getGroup(groupId);
+    //         if (!group) {
+    //             return res.status(404).json({
+    //                 success: false,
+    //                 message: 'Group not found'
+    //             });
+    //         }
+
+    //         // Kiểm tra xem user có phải thành viên không
+    //         if (!group.members.includes(userId)) {
+    //             return res.status(403).json({
+    //                 success: false,
+    //                 message: 'Bạn không phải là thành viên của nhóm này'
+    //             });
+    //         }
+
+    //         // Nếu nhóm chỉ còn 3 thành viên => không cho phép rời
+    //         if (group.members.length <= 3) {
+    //             return res.status(400).json({
+    //                 success: false,
+    //                 message: 'Nhóm còn 3 thành viên hoặc ít hơn, không thể rời nhóm'
+    //             });
+    //         }
+
+    //         // Gỡ khỏi danh sách thành viên
+    //         group.members = group.members.filter(id => id !== userId);
+
+    //         // Gỡ khỏi danh sách admin nếu cần
+    //         if (group.admins.includes(userId)) {
+    //             group.admins = group.admins.filter(id => id !== userId);
+
+    //             // Nếu không còn admin nào sau khi rời, chọn người mới làm admin
+    //             if (group.admins.length === 0 && group.members.length > 0) {
+    //                 const newAdminId = group.members[Math.floor(Math.random() * group.members.length)];
+    //                 group.admins.push(newAdminId);
+    //             }
+    //         }
+
+    //         // Gỡ khỏi danh sách phó nhóm (deputies) nếu có
+    //         if (group.deputies && group.deputies.includes(userId)) {
+    //             group.deputies = group.deputies.filter(id => id !== userId);
+    //         }
+
+    //         // Nếu là người tạo nhóm (creator)
+    //         if (group.creatorId === userId) {
+    //             if (group.members.length > 0) {
+    //                 // Chuyển quyền creator cho thành viên ngẫu nhiên
+    //                 const newCreatorId = group.members[Math.floor(Math.random() * group.members.length)];
+    //                 group.creatorId = newCreatorId;
+
+    //                 // Đảm bảo creator mới là admin
+    //                 if (!group.admins.includes(newCreatorId)) {
+    //                     group.admins.push(newCreatorId);
+    //                 }
+    //             } else {
+    //                 // Nếu không còn ai trong nhóm, để creatorId null (hoặc giữ nguyên nếu cần)
+    //                 group.creatorId = null;
+    //             }
+    //         }
+
+    //         // Lưu cập nhật
+    //         const updatedGroup = await Group.updateGroup(groupId, group);
+
+    //         return res.json({
+    //             success: true,
+    //             message: 'Rời nhóm thành công',
+    //             data: updatedGroup
+    //         });
+
+    //     } catch (error) {
+    //         console.error('Error leaving group:', error);
+    //         return res.status(500).json({
+    //             success: false,
+    //             message: error.message || 'Đã xảy ra lỗi khi rời nhóm'
+    //         });
+    //     }
+    // }
+
     static async leaveGroupWeb(req, res) {
         try {
             const { groupId } = req.params;
@@ -1314,10 +1448,10 @@ class GroupController {
             group.admins = group.admins.filter(id => id !== userId);
 
             // Nếu còn thành viên khác, chọn ngẫu nhiên một người làm admin
-            if (group.members.length > 0) {
-                const newAdminId = group.members[Math.floor(Math.random() * group.members.length)];
-                group.admins.push(newAdminId);
-            }
+                if (group.members.length > 0) {
+                    const newAdminId = group.members[Math.floor(Math.random() * group.members.length)];
+                    group.admins.push(newAdminId);
+                }
             }
 
             // Nếu người dùng là phó nhóm

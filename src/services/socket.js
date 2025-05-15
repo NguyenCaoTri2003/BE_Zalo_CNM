@@ -108,7 +108,7 @@ const initializeSocket = (server) => {
                     senderId: 'system',
                     action: 'join',
                     senderEmail: 'system@chat.app',
-                    content: `${user.email}`, // Hoặc `${user.name}` nếu có
+                    content: `${user.fullName}`, // Hoặc `${user.name}` nếu có
                     type: 'system',
                     isDeleted: false,
                     isRecalled: false,
@@ -193,12 +193,14 @@ const initializeSocket = (server) => {
                 const { groupId, userEmail } = data; // Thêm userEmail vào thông tin
                 console.log('User leaving group web:', userEmail, 'groupId:', groupId);
 
+                const user = await User.getUserByEmail(userEmail);
+
                 const leaveMessage = {
                     messageId: uuidv4(),
                     groupId,
                     senderId: 'system',
                     senderEmail: 'system@chat.app',
-                    content: `${userEmail}`,
+                    content: `${user.fullName}`,
                     type: 'system',
                     action: 'leave',
                     isDeleted: false,
@@ -442,27 +444,28 @@ const initializeSocket = (server) => {
             }
         });
 
-        // Thêm xử lý sự kiện khi người dùng online/offline
+        //Thêm xử lý sự kiện khi người dùng online/offline
         socket.on('userStatus', async (data) => {
             try {
                 const { status } = data;
                 const userEmail = socket.user.email;
-                // const { status, email } = data;
-
-                // // ✅ Gán lại vào socket để sử dụng sau
-                // socket.user = { email };
+                
 
                 // Lấy danh sách bạn bè của người dùng
-                const user = await User.getUserByEmail(email);
+                const user = await User.getUserByEmail(userEmail);
                 if (!user || !user.friends) return;
 
-                // Gửi thông báo trạng thái cho tất cả bạn bè
+                
+
+                //Gửi thông báo trạng thái cho tất cả bạn bè
                 user.friends.forEach(friendEmail => {
+
                     const friendSockets = userSockets.get(friendEmail);
+                    console.log("📢 Gửi tới socket bạn bè:", friendEmail, friendSockets);
                     if (friendSockets) {
                         friendSockets.forEach(socketId => {
                             io.to(socketId).emit('friendStatusUpdate', {
-                                email: email,
+                                email: userEmail,
                                 online: status === 'online'
                             });
                         });
@@ -474,6 +477,76 @@ const initializeSocket = (server) => {
                 console.error('User status update error:', error);
             }
         });
+
+        
+        // Xử lý sự kiện trạng thái online/offline từ web
+        socket.on('userStatusWeb', async (data) => {
+            const { status, email } = data;
+
+            if (!email) return;
+
+            if (status === "offline") {
+                // Xóa socket khỏi danh sách user
+                if (userSockets.has(email)) {
+                    userSockets.get(email).delete(socket.id);
+                    if (userSockets.get(email).size === 0) {
+                        userSockets.delete(email);
+
+                        // Gửi trạng thái offline đến bạn bè
+                        const user = await User.getUserByEmail(email);
+                        if (user?.friends) {
+                            user.friends.forEach(friend => {
+                                const friendEmail = typeof friend === 'string' ? friend : friend.email;
+                                const friendSockets = userSockets.get(friendEmail);
+                                if (friendSockets) {
+                                    friendSockets.forEach(socketId => {
+                                        io.to(socketId).emit('friendStatusUpdateWeb', {
+                                            email,
+                                            online: false
+                                        });
+                                    });
+                                }
+                            });
+                        }
+                    }
+                }
+
+                return; //Không xử lý tiếp nếu là offline
+            }
+
+            // Nếu là online – như cũ
+            if (!userSockets.has(email)) {
+                userSockets.set(email, new Set());
+            }
+            userSockets.get(email).add(socket.id);
+            socket.user = { email };
+
+            const user = await User.getUserByEmail(email);
+            if (!user || !user.friends) return;
+
+            const onlineFriends = [];
+            user.friends.forEach(friend => {
+                const friendEmail = typeof friend === 'string' ? friend : friend.email;
+                const friendSockets = userSockets.get(friendEmail);
+                if (friendSockets) {
+                    friendSockets.forEach(socketId => {
+                        io.to(socketId).emit('friendStatusUpdateWeb', {
+                            email,
+                            online: true
+                        });
+                    });
+                    onlineFriends.push(friendEmail);
+                }
+            });
+
+            // Gửi lại danh sách bạn bè online cho user
+            socket.emit('initialFriendStatusesWeb', {
+                friends: user.friends.map(f => typeof f === 'string' ? f : f.email),
+                onlineFriends
+            });
+        });
+
+
 
         // Xử lý sự kiện thu hồi tin nhắn
         socket.on('messageRecalled', async (data) => {
@@ -574,18 +647,61 @@ const initializeSocket = (server) => {
         });
 
         // Xử lý sự kiện ngắt kết nối
-        socket.on('disconnect', () => {
-            console.log('Client disconnected:', userEmail);
+        // socket.on('disconnect', () => {
+        //     console.log('Client disconnected:', userEmail);
             
-            // Xóa socket khỏi danh sách kết nối của user
-            if (userSockets.has(userEmail)) {
+        //     // Xóa socket khỏi danh sách kết nối của user
+        //     if (userSockets.has(userEmail)) {
+        //         userSockets.get(userEmail).delete(socket.id);
+        //         if (userSockets.get(userEmail).size === 0) {
+        //             userSockets.delete(userEmail);
+        //         }
+        //     }
+            
+        //     // Xóa socket khỏi tất cả các phòng nhóm
+        //     groupRooms.forEach((sockets, groupId) => {
+        //         if (sockets.has(socket.id)) {
+        //             sockets.delete(socket.id);
+        //             if (sockets.size === 0) {
+        //                 groupRooms.delete(groupId);
+        //             }
+        //         }
+        //     });
+        // });
+        socket.on('disconnect', async () => {
+            const userEmail = socket.user?.email;
+            console.log('Client disconnected:', userEmail);
+
+            if (userEmail && userSockets.has(userEmail)) {
                 userSockets.get(userEmail).delete(socket.id);
+
                 if (userSockets.get(userEmail).size === 0) {
                     userSockets.delete(userEmail);
+
+                    // Gửi thông báo offline đến bạn bè
+                    try {
+                        const user = await User.getUserByEmail(userEmail);
+                        if (user?.friends) {
+                            user.friends.forEach(friend => {
+                                const friendEmail = typeof friend === 'string' ? friend : friend.email;
+                                const friendSockets = userSockets.get(friendEmail);
+                                if (friendSockets) {
+                                    friendSockets.forEach(socketId => {
+                                        io.to(socketId).emit('friendStatusUpdateWeb', {
+                                            email: userEmail,
+                                            online: false
+                                        });
+                                    });
+                                }
+                            });
+                        }
+                    } catch (error) {
+                        console.error('Error notifying friends of disconnect:', error);
+                    }
                 }
             }
-            
-            // Xóa socket khỏi tất cả các phòng nhóm
+
+            // ✅ Xóa socket khỏi tất cả các phòng nhóm
             groupRooms.forEach((sockets, groupId) => {
                 if (sockets.has(socket.id)) {
                     sockets.delete(socket.id);
@@ -595,6 +711,7 @@ const initializeSocket = (server) => {
                 }
             });
         });
+
     });
 
     return io;

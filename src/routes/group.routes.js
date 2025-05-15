@@ -33,6 +33,7 @@ router.put('/:groupId/members/:memberId/role', GroupController.updateMemberRole)
 
 // Admin management routes
 router.post('/:groupId/admins', GroupController.addAdmin);
+router.post('/:groupId/adminsweb', GroupController.addAdminWeb);
 router.delete('/:groupId/admins', GroupController.removeAdmin);
 router.delete('/:groupId/adminsweb', GroupController.removeAdminWeb);
 

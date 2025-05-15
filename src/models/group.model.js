@@ -144,7 +144,7 @@ class Group {
             Key: {
                 groupId: groupId
             },
-            UpdateExpression: 'set #name = :name, members = :members, admins = :admins, deputies = :deputies, avatar = :avatar, updatedAt = :updatedAt',
+            UpdateExpression: 'set #name = :name, members = :members, admins = :admins, deputies = :deputies, avatar = :avatar, updatedAt = :updatedAt, allowMemberInvite = :allowMemberInvite',
             ExpressionAttributeNames: {
                 '#name': 'name'
             },
@@ -154,7 +154,9 @@ class Group {
                 ':admins': updateData.admins,
                 ':deputies': updateData.deputies || [],
                 ':avatar': updateData.avatar,
-                ':updatedAt': new Date().toISOString()
+                ':updatedAt': new Date().toISOString(),
+                ':allowMemberInvite': typeof updateData.allowMemberInvite === 'boolean' ? updateData.allowMemberInvite : false,
+
             },
             ReturnValues: 'ALL_NEW'
         };
