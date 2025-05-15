@@ -62,6 +62,7 @@ class Message {
                         isForwarded: message.isForwarded || false,
                         originalMessageId: message.originalMessageId,
                         originalGroupId: message.originalGroupId,
+                        originalSenderEmail: message.originalSenderEmail, 
                         isDeleted: message.isDeleted || false,
                         isRecalled: message.isRecalled || false
                     }]
@@ -95,6 +96,7 @@ class Message {
                         isForwarded: message.isForwarded || false,
                         originalMessageId: message.originalMessageId,
                         originalGroupId: message.originalGroupId,
+                        originalSenderEmail: message.originalSenderEmail,
                         isDeleted: message.isDeleted || false,
                         isRecalled: message.isRecalled || false
                     }]

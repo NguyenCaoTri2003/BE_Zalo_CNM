@@ -646,6 +646,35 @@ const initializeSocket = (server) => {
             }
         });
 
+        socket.on("groupMessageReaction", async (data) => {
+            try {
+                const { messageId, reaction, groupId } = data;
+                const senderEmail = socket.user.email;
+
+                console.log("📨 Group message reaction received:", { groupId, messageId, reaction });
+
+                // Gửi cho tất cả trong nhóm (trừ người gửi)
+                socket.to(groupId).emit("messageReaction", {
+                    messageId,
+                    reaction,
+                    senderEmail
+                });
+
+                socket.emit("messageReactionConfirmed", {
+                    success: true,
+                    messageId,
+                    reaction
+                });
+            } catch (error) {
+                console.error("Group message reaction error:", error);
+                socket.emit("messageReactionConfirmed", {
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+
         // Xử lý sự kiện ngắt kết nối
         // socket.on('disconnect', () => {
         //     console.log('Client disconnected:', userEmail);

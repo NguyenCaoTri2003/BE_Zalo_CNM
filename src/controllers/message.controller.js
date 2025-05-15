@@ -1,5 +1,7 @@
 const Message = require('../models/message.model');
 const { v4: uuidv4 } = require('uuid');
+const User = require('../models/user.model');
+const Group = require('../models/group.model');
 
 exports.sendMessage = async (req, res) => {
     try {
@@ -236,3 +238,87 @@ exports.deleteMessage = async (req, res) => {
         });
     }
 }; 
+
+
+exports.forwardMessage = async (req, res) => {
+    try {
+        const { messageId } = req.params;
+        const { sourceType = 'group', sourceGroupId, targetGroupId, targetEmail } = req.body;
+        const userId = req.user.userId || req.user.id;
+        const userEmail = req.user.email;
+
+        let sourceMessage = null;
+
+        // Nếu nguồn là group
+        if (sourceType === 'group') {
+            const sourceGroup = await Group.getGroup(sourceGroupId);
+            if (!sourceGroup) return res.status(404).json({ success: false, message: 'Group not found' });
+
+            if (!sourceGroup.members.includes(userId)) return res.status(403).json({ success: false, message: 'Not a member' });
+
+            sourceMessage = sourceGroup.messages.find(msg => msg.messageId === messageId);
+        } else {
+            // Nếu nguồn là tin nhắn cá nhân
+            sourceMessage = await Message.findById(messageId);
+            if (!sourceMessage) return res.status(404).json({ success: false, message: 'Message not found' });
+
+            if (sourceMessage.senderEmail !== userEmail && sourceMessage.receiverEmail !== userEmail) {
+                return res.status(403).json({ success: false, message: 'Not your message' });
+            }
+        }
+
+        if (!sourceMessage) return res.status(404).json({ success: false, message: 'Message not found' });
+
+        // Tạo message chuyển tiếp giống như trước
+        const forwardedMessage = {
+            messageId: uuidv4(),
+            senderId: userId,
+            senderEmail: userEmail,
+            content: sourceMessage.content,
+            type: sourceMessage.type,
+            metadata: sourceMessage.metadata,
+            isForwarded: true,
+            originalMessageId: messageId,
+            originalGroupId: sourceType === 'group' ? sourceGroupId : undefined,   
+            originalSenderEmail: sourceType != 'group' ? sourceMessage.senderEmail : undefined,
+            isDeleted: false,
+            isRecalled: false,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            status: 'sent'
+        };
+
+        console.log("======== Forwarded message: ========", forwardedMessage);
+
+        
+
+        if (!targetGroupId && !targetEmail) {
+            return res.status(400).json({ success: false, message: 'Target missing' });
+        }
+
+        if (targetGroupId) {
+            const targetGroup = await Group.getGroup(targetGroupId);
+            if (!targetGroup || !targetGroup.members.includes(userId)) {
+                return res.status(403).json({ success: false, message: 'Not a member of target group' });
+            }
+            forwardedMessage.groupId = targetGroupId;
+            await Group.addMessage(targetGroupId, forwardedMessage);
+        } 
+
+        if (targetEmail) {
+            const targetUser = await User.getUserByEmail(targetEmail);
+            if (!targetUser) return res.status(404).json({ success: false, message: 'Target user not found' });
+
+            forwardedMessage.receiverEmail = targetEmail;
+            await Message.create(forwardedMessage);
+        }
+
+        
+
+        return res.json({ success: true, data: forwardedMessage });
+
+    } catch (error) {
+        console.error("Lỗi:", error);
+        return res.status(500).json({ success: false, message: 'Server error' });
+    }
+}
