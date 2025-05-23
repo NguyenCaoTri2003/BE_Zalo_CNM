@@ -64,7 +64,8 @@ class Message {
                         originalGroupId: message.originalGroupId,
                         originalSenderEmail: message.originalSenderEmail, 
                         isDeleted: message.isDeleted || false,
-                        isRecalled: message.isRecalled || false
+                        isRecalled: message.isRecalled || false,
+                        deleteBy: message.deleteBy || [],
                     }]
                 },
                 ReturnValues: 'ALL_NEW'
@@ -98,7 +99,8 @@ class Message {
                         originalGroupId: message.originalGroupId,
                         originalSenderEmail: message.originalSenderEmail,
                         isDeleted: message.isDeleted || false,
-                        isRecalled: message.isRecalled || false
+                        isRecalled: message.isRecalled || false,
+                        deleteBy: message.deleteBy || [],
                     }]
                 }
             };
@@ -356,6 +358,47 @@ class Message {
             throw error;
         }
     }
+
+    static async updateDeleteBy(messageId, deleteByArray) {
+        const conversations = await this.findAllConversations();
+        let targetConversation = null;
+        let messageIndex = -1;
+
+        for (const conversation of conversations) {
+            const index = conversation.messages.findIndex(m => m.messageId === messageId);
+            if (index !== -1) {
+            targetConversation = conversation;
+            messageIndex = index;
+            break;
+            }
+        }
+
+        if (!targetConversation) {
+            throw new Error('Message not found');
+        }
+
+        targetConversation.messages[messageIndex].deleteBy = deleteByArray;
+
+        const params = {
+            TableName: TABLE_NAME,
+            Key: {
+            conversationId: targetConversation.conversationId
+            },
+            UpdateExpression: 'SET messages = :messages',
+            ExpressionAttributeValues: {
+            ':messages': targetConversation.messages
+            },
+            ReturnValues: 'ALL_NEW'
+        };
+
+        try {
+            const result = await dynamoDB.update(params).promise();
+            return result.Attributes.messages[messageIndex];
+        } catch (error) {
+            console.error('Error updating deleteBy:', error);
+            throw error;
+        }
+        }
 }
 
 module.exports = Message; 

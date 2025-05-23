@@ -239,6 +239,43 @@ exports.deleteMessage = async (req, res) => {
     }
 }; 
 
+exports.deleteMessageWeb = async (req, res) => {
+  try {
+    const currentUserEmail = req.user.email;
+    const { messageId } = req.params;
+
+    if (!messageId) {
+      return res.status(400).json({ success: false, error: 'Missing messageId' });
+    }
+
+    // Lấy message theo messageId
+    const message = await Message.findById(messageId);
+    if (!message) {
+      return res.status(404).json({ success: false, error: 'Message not found' });
+    }
+
+    // Nếu chưa có deleteBy thì khởi tạo là []
+    if (!Array.isArray(message.deleteBy)) {
+      message.deleteBy = [];
+    }
+
+    if (!message.deleteBy.includes(currentUserEmail)) {
+      message.deleteBy.push(currentUserEmail);
+
+      // Gọi method cập nhật trên model để lưu lại thay đổi vào DynamoDB
+      await Message.updateDeleteBy(messageId, message.deleteBy);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Message hidden for current user only',
+    });
+  } catch (error) {
+    console.error('Error deleting message:', error);
+    res.status(500).json({ success: false, error: error.message || 'Internal server error' });
+  }
+};
+
 
 exports.forwardMessage = async (req, res) => {
     try {

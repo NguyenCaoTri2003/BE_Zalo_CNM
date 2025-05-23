@@ -20,6 +20,7 @@ router.put('/recall/:messageId', authenticateToken, messageController.recallMess
 
 // Xóa tin nhắn
 router.delete('/delete/:messageId', authenticateToken, messageController.deleteMessage);
+router.delete('/deleteweb/:messageId', authenticateToken, messageController.deleteMessageWeb);
 
 // Chuyển tiếp tin nhắn
 router.post('/:messageId/forward', authenticateToken, messageController.forwardMessage);

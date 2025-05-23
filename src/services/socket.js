@@ -580,6 +580,21 @@ const initializeSocket = (server) => {
             }
         });
 
+        // Xử lý xóa tin nhắn nhóm
+        socket.on("recallGroupMessage", (data) => {
+            const { groupId, messageId, senderEmail } = data;
+            const groupSockets = groupMembers.get(groupId); // tuỳ cách bạn lưu
+            if (groupSockets) {
+                groupSockets.forEach(socketId => {
+                    io.to(socketId).emit("recallGroupMessage", {
+                        groupId,
+                        messageId,
+                        senderEmail,
+                    });
+                });
+            }
+        });
+
         // Xử lý sự kiện xóa tin nhắn
         socket.on('messageDeleted', async (data) => {
             try {
