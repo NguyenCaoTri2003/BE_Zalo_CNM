@@ -255,15 +255,15 @@ exports.deleteMessageWeb = async (req, res) => {
     }
 
     // Nếu chưa có deleteBy thì khởi tạo là []
-    if (!Array.isArray(message.deleteBy)) {
-      message.deleteBy = [];
+    if (!Array.isArray(message.deletedBy)) {
+      message.deletedBy = [];
     }
 
-    if (!message.deleteBy.includes(currentUserEmail)) {
-      message.deleteBy.push(currentUserEmail);
+    if (!message.deletedBy.includes(currentUserEmail)) {
+      message.deletedBy.push(currentUserEmail);
 
       // Gọi method cập nhật trên model để lưu lại thay đổi vào DynamoDB
-      await Message.updateDeleteBy(messageId, message.deleteBy);
+      await Message.updateDeleteBy(messageId, message.deletedBy);
     }
 
     res.status(200).json({
@@ -274,6 +274,44 @@ exports.deleteMessageWeb = async (req, res) => {
     console.error('Error deleting message:', error);
     res.status(500).json({ success: false, error: error.message || 'Internal server error' });
   }
+};
+
+exports.deleteAllMessagesForUser = async (req, res) => {
+    try {
+        const { conversationId } = req.params;
+        const userEmail = req.user.email;
+
+        await Message.deleteManyForUser(conversationId, userEmail);
+
+        res.status(200).json({
+            success: true,
+            message: 'Đã xóa tin nhắn khỏi giao diện người dùng hiện tại.'
+        });
+    } catch (error) {
+        console.error('Lỗi khi xóa tin nhắn:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Lỗi server khi xóa tin nhắn.'
+        });
+    }
+};
+
+exports.hideMessagesForUser = async (req, res) => {
+    try {
+        const userEmail = req.user.email;
+        const { receiverEmail } = req.params;
+
+        if (!receiverEmail) {
+            return res.status(400).json({ success: false, error: "Thiếu receiverEmail" });
+        }
+
+        const result = await Message.hideMessagesBetweenUsers(userEmail, receiverEmail);
+
+        res.status(200).json({ success: true, message: "Đã ẩn tin nhắn cho bạn", updatedConversations: result });
+    } catch (error) {
+        console.error("Lỗi ẩn tin nhắn 1-1:", error);
+        res.status(500).json({ success: false, error: "Lỗi server" });
+    }
 };
 
 

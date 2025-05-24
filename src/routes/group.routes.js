@@ -24,6 +24,7 @@ router.post('/:groupId/messages/:messageId/reactions', GroupController.addReacti
 router.post('/:groupId/messages/:messageId/forward', GroupController.forwardMessage);
 router.put('/:groupId/messages/:messageId/recall', GroupController.recallMessage);
 router.delete('/:groupId/messages/:messageId/user', GroupController.deleteMessageForUser);
+router.delete('/:groupId/messages/hide', GroupController.hideAllGroupMessagesForUser);
 
 // Member management routes
 router.post('/:groupId/members', GroupController.addMember);

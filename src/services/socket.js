@@ -583,7 +583,7 @@ const initializeSocket = (server) => {
         // Xử lý xóa tin nhắn nhóm
         socket.on("recallGroupMessage", (data) => {
             const { groupId, messageId, senderEmail } = data;
-            const groupSockets = Group.get(groupId); // tuỳ cách bạn lưu
+            const groupSockets = groupRooms.get(groupId); // tuỳ cách bạn lưu
             if (groupSockets) {
                 groupSockets.forEach(socketId => {
                     io.to(socketId).emit("recallGroupMessage", {
@@ -634,7 +634,7 @@ const initializeSocket = (server) => {
                 console.log('Message reaction:', { messageId, reaction, senderEmail, receiverEmail });
 
                 // Gửi thông báo cho tất cả các kết nối của người nhận
-                const receiverSockets = groupRooms.get(receiverEmail);
+                const receiverSockets = userSockets.get(receiverEmail);
                 if (receiverSockets) {
                     console.log('Sending reaction notification to receiver:', receiverEmail);
                     receiverSockets.forEach(socketId => {

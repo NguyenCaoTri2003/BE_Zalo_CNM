@@ -5,6 +5,7 @@ const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const { s3, docClient } = require('../config/aws.config');
 const { getIO } = require('../services/socket');
+const Message = require('../models/message.model');
 
 // Biến toàn cục để lưu trữ thông tin xác nhận
 const verificationStore = new Map();
@@ -1143,6 +1144,8 @@ class UserController {
 
             // Xóa bạn bè
             await User.removeFriend(userEmail, friendEmail);
+
+            await Message.permanentlyDeleteMessagesBetweenUsers(userEmail, friendEmail);
 
             // Gửi thông báo qua Socket.IO
             const io = getIO();

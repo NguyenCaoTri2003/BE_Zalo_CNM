@@ -359,7 +359,7 @@ class Message {
         }
     }
 
-    static async updateDeleteBy(messageId, deleteByArray) {
+    static async updateDeleteBy(messageId, deletedByArray) {
         const conversations = await this.findAllConversations();
         let targetConversation = null;
         let messageIndex = -1;
@@ -367,9 +367,9 @@ class Message {
         for (const conversation of conversations) {
             const index = conversation.messages.findIndex(m => m.messageId === messageId);
             if (index !== -1) {
-            targetConversation = conversation;
-            messageIndex = index;
-            break;
+                targetConversation = conversation;
+                messageIndex = index;
+                break;
             }
         }
 
@@ -377,16 +377,14 @@ class Message {
             throw new Error('Message not found');
         }
 
-        targetConversation.messages[messageIndex].deleteBy = deleteByArray;
-
         const params = {
             TableName: TABLE_NAME,
             Key: {
-            conversationId: targetConversation.conversationId
+                conversationId: targetConversation.conversationId
             },
-            UpdateExpression: 'SET messages = :messages',
+            UpdateExpression: `SET messages[${messageIndex}].deletedBy = :deletedBy`,
             ExpressionAttributeValues: {
-            ':messages': targetConversation.messages
+                ':deletedBy': deletedByArray
             },
             ReturnValues: 'ALL_NEW'
         };
@@ -398,7 +396,107 @@ class Message {
             console.error('Error updating deleteBy:', error);
             throw error;
         }
+    }
+
+    static async deleteManyForUser(conversationId, userEmail) {
+        const conversation = await this.findConversation(conversationId);
+        if (!conversation) {
+            throw new Error('Conversation not found');
         }
+
+        const updatedMessages = conversation.messages.map((msg) => {
+            if (!msg.deleteBy) msg.deleteBy = [];
+
+            if (!msg.deleteBy.includes(userEmail)) {
+                msg.deleteBy.push(userEmail);
+            }
+
+            return msg;
+        });
+
+        const params = {
+            TableName: TABLE_NAME,
+            Key: { conversationId },
+            UpdateExpression: 'SET messages = :messages',
+            ExpressionAttributeValues: {
+                ':messages': updatedMessages
+            },
+            ReturnValues: 'ALL_NEW'
+        };
+
+        try {
+            const result = await dynamoDB.update(params).promise();
+            return result.Attributes.messages;
+        } catch (error) {
+            console.error('Error in deleteManyForUser:', error);
+            throw error;
+        }
+    }
+
+    static async hideMessagesBetweenUsers(currentEmail, otherEmail) {
+        const allMessages = await this.findAllConversations(); // hoặc dùng findAllConversations()
+
+        const updatedMessages = [];
+
+        for (const conversation of allMessages) {
+            for (const message of conversation.messages) {
+                const isBetweenUsers = 
+                    (message.senderEmail === currentEmail && message.receiverEmail === otherEmail) ||
+                    (message.senderEmail === otherEmail && message.receiverEmail === currentEmail);
+
+                if (isBetweenUsers && (!message.deletedBy || !message.deletedBy.includes(currentEmail))) {
+                    message.deletedBy = message.deletedBy || [];
+                    message.deletedBy.push(currentEmail);
+                }
+            }
+
+            // Update toàn bộ conversation (DynamoDB không hỗ trợ update nested array phần tử riêng lẻ)
+            await dynamoDB.update({
+                TableName: TABLE_NAME,
+                Key: { conversationId: conversation.conversationId },
+                UpdateExpression: 'SET messages = :messages',
+                ExpressionAttributeValues: {
+                    ':messages': conversation.messages
+                }
+            }).promise();
+
+            updatedMessages.push(conversation.conversationId);
+        }
+
+        return updatedMessages;
+    }
+
+    static async permanentlyDeleteMessagesBetweenUsers(emailA, emailB) {
+        const conversations = await this.findAllConversations(); // hoặc theo conversationId đã biết
+
+        for (const convo of conversations) {
+            const relevantMessages = convo.messages.filter(msg =>
+                (msg.senderEmail === emailA && msg.receiverEmail === emailB) ||
+                (msg.senderEmail === emailB && msg.receiverEmail === emailA)
+            );
+
+            if (relevantMessages.length > 0) {
+                // Lọc bỏ các tin nhắn giữa 2 người
+                convo.messages = convo.messages.filter(msg =>
+                    !((msg.senderEmail === emailA && msg.receiverEmail === emailB) ||
+                    (msg.senderEmail === emailB && msg.receiverEmail === emailA))
+                );
+                console.log("⭐ Đang xóa conversationId:", convo.conversationId);
+
+                // Cập nhật lại
+                await dynamoDB.update({
+                    TableName: TABLE_NAME,
+                    Key: { conversationId: convo.conversationId },
+                    UpdateExpression: 'SET messages = :messages',
+                    ExpressionAttributeValues: {
+                        ':messages': convo.messages
+                    }
+                }).promise();
+            }
+        }
+    }
+
+
 }
 
 module.exports = Message; 

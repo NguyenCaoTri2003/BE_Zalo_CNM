@@ -1743,6 +1743,56 @@ class GroupController {
             });
         }
     }
+
+    static async hideAllGroupMessagesForUser(req, res) {
+        try {
+            const { groupId } = req.params;
+            const userEmail = req.user.email;
+
+            const group = await Group.getGroup(groupId);
+            if (!group) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Group not found'
+                });
+            }
+
+            // Duyệt tất cả tin nhắn và thêm userEmail vào deletedFor nếu chưa có
+            for (const message of group.messages) {
+                if (!message.deletedFor) {
+                    message.deletedFor = [];
+                }
+
+                if (!message.deletedFor.includes(userEmail)) {
+                    message.deletedFor.push(userEmail);
+                }
+            }
+
+            // Cập nhật lại toàn bộ messages
+            const params = {
+                TableName: 'Groups',
+                Key: { groupId },
+                UpdateExpression: 'SET messages = :messages',
+                ExpressionAttributeValues: {
+                    ':messages': group.messages
+                },
+                ReturnValues: 'ALL_NEW'
+            };
+
+            await dynamoDB.update(params).promise();
+
+            return res.json({
+                success: true,
+                message: 'Đã ẩn toàn bộ tin nhắn nhóm cho bạn'
+            });
+        } catch (error) {
+            console.error('Lỗi khi ẩn tất cả tin nhắn nhóm:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Lỗi server'
+            });
+        }
+    }
 }
 
 module.exports = GroupController; 
