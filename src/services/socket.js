@@ -761,6 +761,16 @@ const initializeSocket = (server) => {
             }
         });
 
+        socket.on("call-cancelled", ({ fromUserId, toUserId }) => {
+            const toSocketId = onlineUsers[toUserId];
+
+            if (toSocketId) {
+                io.to(toSocketId).emit("call-cancelled", { fromUserId, toUserId });
+            } else {
+                console.log(`❌ Không tìm thấy ${toUserId} online để gửi thông báo hủy`);
+            }
+        });
+
         socket.on('disconnect', async () => {
             const userEmail = socket.user?.email;
             console.log('Client disconnected:', userEmail);
