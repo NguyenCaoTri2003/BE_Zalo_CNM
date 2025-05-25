@@ -13,9 +13,10 @@ const initializeSocket = (server) => {
     io = socketIO(server, {
         cors: {
             origin: '*',
+            
             methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
             allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', '*'],
-            credentials: true,
+            // credentials: true,
             preflightContinue: false,
             optionsSuccessStatus: 204
         },
