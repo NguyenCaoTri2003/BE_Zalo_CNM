@@ -7,6 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 let io;
 const userSockets = new Map(); // Lưu trữ socket connections của users
 const groupRooms = new Map(); // Thêm biến để lưu trữ các phòng chat nhóm
+const onlineUsers = new Map();
 
 const initializeSocket = (server) => {
     io = socketIO(server, {
@@ -64,6 +65,11 @@ const initializeSocket = (server) => {
             userSockets.set(userEmail, new Set());
         }
         userSockets.get(userEmail).add(socket.id);
+
+        socket.on("register", (userId) => {
+            onlineUsers[userId] = socket.id;
+            console.log(`User ${userId} connected with socket ${socket.id}`);
+        });
 
         // Xử lý sự kiện tham gia nhóm chat
         socket.on('joinGroup', async (data) => {
@@ -650,17 +656,6 @@ const initializeSocket = (server) => {
             }
         });
 
-        socket.on('join-room', roomId => {
-            socket.join(roomId);
-            console.log(socket.id, 'joined room', roomId);
-            socket.to(roomId).emit('user-joined', socket.id);
-        });
-
-        socket.on('signal', ({ roomId, data, to }) => {
-            console.log('Signal from', socket.id, 'to', to);
-            io.to(to).emit('signal', { from: socket.id, data });
-        });
-
 
         // Xử lý sự kiện reaction tin nhắn
         socket.on('messageReaction', async (data) => {
@@ -725,29 +720,47 @@ const initializeSocket = (server) => {
             }
         });
 
-
-        // Xử lý sự kiện ngắt kết nối
-        // socket.on('disconnect', () => {
-        //     console.log('Client disconnected:', userEmail);
-            
-        //     // Xóa socket khỏi danh sách kết nối của user
-        //     if (userSockets.has(userEmail)) {
-        //         userSockets.get(userEmail).delete(socket.id);
-        //         if (userSockets.get(userEmail).size === 0) {
-        //             userSockets.delete(userEmail);
-        //         }
-        //     }
-            
-        //     // Xóa socket khỏi tất cả các phòng nhóm
-        //     groupRooms.forEach((sockets, groupId) => {
-        //         if (sockets.has(socket.id)) {
-        //             sockets.delete(socket.id);
-        //             if (sockets.size === 0) {
-        //                 groupRooms.delete(groupId);
-        //             }
-        //         }
-        //     });
+        // socket.on("register", (userId) => {
+        //     onlineUsers[userId] = socket.id;
+        //     console.log(`User ${userId} connected with socket ${socket.id}`);
         // });
+
+        // socket.on("disconnect", () => {
+        //     // Xóa user khỏi onlineUsers khi disconnect
+        //     for (const [userId, socketId] of Object.entries(onlineUsers)) {
+        //     if (socketId === socket.id) {
+        //         delete onlineUsers[userId];
+        //         break;
+        //     }
+        //     }
+        // });
+
+        socket.on("call-user", ({ fromUserId, toUserId }) => {
+            const toSocketId = onlineUsers[toUserId];
+            if (toSocketId) {
+                console.log(`📞 ${fromUserId} đang gọi ${toUserId}`);
+                io.to(toSocketId).emit("incoming-call", { fromUserId });
+            } else {
+                console.log(`❌ Không tìm thấy ${toUserId} online`);
+            }
+        });
+
+        socket.on("call-declined", ({ fromUserId, toUserId }) => {
+            const toSocketId = onlineUsers[fromUserId]; // A là người gọi
+            if (toSocketId) {
+                io.to(toSocketId).emit("call-declined", { fromUserId, toUserId });
+            }
+            console.log("📨 call-declined từ", toUserId, "về", fromUserId);
+            console.log("📦 Socket của người gọi (fromUserId):", toSocketId);
+        });
+
+        socket.on("call-accepted", ({ fromUserId, toUserId }) => {
+            const toSocketId = onlineUsers[fromUserId];
+            if (toSocketId) {
+                io.to(toSocketId).emit("call-accepted", { fromUserId, toUserId });
+            }
+        });
+
         socket.on('disconnect', async () => {
             const userEmail = socket.user?.email;
             console.log('Client disconnected:', userEmail);
