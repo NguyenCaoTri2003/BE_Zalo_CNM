@@ -367,6 +367,30 @@ const initializeSocket = (server) => {
             }
         });
 
+        socket.on('withdrawFriendRequest', async (data) => {
+            try {
+                const { receiverEmail, senderEmail } = data;
+
+                // Thực hiện logic thu hồi lời mời trong DB ở đây
+
+                // Gửi thông báo cho người nhận lời mời rằng lời mời đã bị thu hồi
+                const receiverSockets = userSockets.get(receiverEmail);
+                if (receiverSockets) {
+                receiverSockets.forEach(socketId => {
+                    io.to(socketId).emit('friendRequestWithdrawn', {
+                    senderEmail
+                    });
+                });
+                }
+
+                // Có thể gửi xác nhận cho người gửi (nếu cần)
+                socket.emit('withdrawConfirmed', { success: true });
+            } catch (error) {
+                console.error('Error withdrawing friend request:', error);
+                socket.emit('withdrawConfirmed', { success: false, error: error.message });
+            }
+        });
+
         // Thêm xử lý sự kiện khi có người chấp nhận lời mời kết bạn
         socket.on('friendRequestAccepted', async (data) => {
             try {
