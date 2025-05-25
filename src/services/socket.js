@@ -650,6 +650,18 @@ const initializeSocket = (server) => {
             }
         });
 
+        socket.on('join-room', roomId => {
+            socket.join(roomId);
+            console.log(socket.id, 'joined room', roomId);
+            socket.to(roomId).emit('user-joined', socket.id);
+        });
+
+        socket.on('signal', ({ roomId, data, to }) => {
+            console.log('Signal from', socket.id, 'to', to);
+            io.to(to).emit('signal', { from: socket.id, data });
+        });
+
+
         // Xử lý sự kiện reaction tin nhắn
         socket.on('messageReaction', async (data) => {
             try {
