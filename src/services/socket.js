@@ -16,7 +16,7 @@ const initializeSocket = (server) => {
             
             methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
             allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', '*'],
-            // credentials: true,
+            credentials: true,
             preflightContinue: false,
             optionsSuccessStatus: 204
         },
@@ -68,6 +68,7 @@ const initializeSocket = (server) => {
         userSockets.get(userEmail).add(socket.id);
 
         socket.on("register", (userId) => {
+            socket.userId = userId;
             onlineUsers[userId] = socket.id;
             console.log(`User ${userId} connected with socket ${socket.id}`);
         });
@@ -423,6 +424,11 @@ const initializeSocket = (server) => {
                                 fullName: accepter.fullName,
                                 avatar: accepter.avatar,
                                 online: true
+                            },
+                            lastMessage: {
+                                message: "Bạn đã trở thành bạn bè",
+                                time: new Date(),
+                                senderEmail: accepter.email
                             }
                         });
                     });
@@ -439,6 +445,11 @@ const initializeSocket = (server) => {
                                 fullName: requester.fullName,
                                 avatar: requester.avatar,
                                 online: true
+                            },
+                            lastMessage: {
+                                message: "Bạn đã trở thành bạn bè",
+                                time: new Date(),
+                                senderEmail: accepter.email
                             }
                         });
                     });
@@ -769,6 +780,23 @@ const initializeSocket = (server) => {
                 io.to(toSocketId).emit("call-cancelled", { fromUserId, toUserId });
             } else {
                 console.log(`❌ Không tìm thấy ${toUserId} online để gửi thông báo hủy`);
+            }
+        });
+
+        socket.on("call-ended", ({ roomId }) => {
+            console.log("📩 Gọi call-ended với roomId:", roomId);
+            console.log("🧑 socket.userId là:", socket.userId);
+
+            const [user1, user2] = roomId.split("_");
+            const currentUser = socket.userId;
+            const otherUser = currentUser === user1 ? user2 : user1;
+
+            const toSocketId = onlineUsers[otherUser]; 
+            if (toSocketId) {
+                io.to(toSocketId).emit("call-ended", { roomId });
+                console.log(`📞 Cuộc gọi kết thúc - gửi đến ${otherUser}`);
+            } else {
+                console.log(`❌ Không tìm thấy người còn lại (${otherUser}) online`);
             }
         });
 

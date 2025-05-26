@@ -96,6 +96,7 @@ exports.markAsRead = async (req, res) => {
             { messageId, senderEmail: message.senderEmail, receiverEmail },
             { status: 'read' }
         );
+        
 
         res.status(200).json({ 
             success: true,
